@@ -1,0 +1,23 @@
+name = "common-parlance-proxy"
+main = "src/index.js"
+compatibility_date = "2025-03-01"
+
+[[kv_namespaces]]
+binding = "API_KEYS"
+id = "7fd3ce67846d4b63a21daa05b30fe249"
+
+[[kv_namespaces]]
+binding = "METRICS"
+id = "c7ce269700764f338012624b66f7c241"
+
+[vars]
+# NER service URL (HuggingFace Spaces). Leave empty to skip server-side NER.
+NER_SERVICE_URL = "https://common-parlance-ner-service.hf.space"
+# Cloudflare Turnstile site key (public by design — only the secret is private).
+# Create a widget at: https://dash.cloudflare.com/?to=/:account/turnstile
+TURNSTILE_SITE_KEY = "0x4AAAAAACs1_5q7-z6bCYtj"
+# Secrets (set via `npx wrangler secret put <NAME>`):
+#   TURNSTILE_SECRET — Cloudflare Turnstile secret key
+#   HF_TOKEN         — HuggingFace fine-grained write token (scoped to dataset only)
+#   NER_API_KEY      — NER service API key
+# HF_REPO: defaults to "common-parlance/conversations" in code

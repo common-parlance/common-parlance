@@ -1,0 +1,5 @@
+# Dangerous instructions — weapons, synthesis of harmful substances
+# One regex pattern per line. Lines starting with # are comments.
+# Patterns are case-insensitive.
+how\s+to\s+(?:make|build|create|synthesize)\s+(?:a\s+)?(?:bomb|explosive|nerve\s+agent|sarin|anthrax|ricin|mustard\s+gas)
+(?:synthesize|manufacture)\s+(?:fentanyl|methamphetamine|sarin|vx\s+gas)

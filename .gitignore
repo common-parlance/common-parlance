@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# Testing/Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ruff
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (Worker dependencies)
+node_modules/
+# Root-level Node artifacts from wrangler init (worker/ has its own tracked copies)
+/package-lock.json
+/package.json
+
+# Wrangler
+worker/.wrangler/
+worker/.dev.vars
+
+# Obsidian vault (local knowledge base)
+/common_parlance/
+
+# Internal docs (kept local)
+CLAUDE.md
+DEVELOPMENT.md
+docs/secret_rotation.md
+docs/pre_launch_review.md
+docs/recommended_upgrades.md
+docs/review_prompt.md
+docs/pattern_research_agents.md
+docs/architecture_comparison.md
+docs/architectural_patterns.md
+docs/ncmec_reporting_protocol.md
+
+# SQLite databases (local user data)
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,51 @@
+name: Report Harmful Content
+description: Flag harmful, illegal, or personally identifiable content in the dataset
+title: "[Content Report] "
+labels: ["content-report", "priority"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. We take content reports seriously and will
+        respond promptly. Reports involving CSAM or illegal content will be
+        prioritized.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Content Category
+      options:
+        - CSAM / child exploitation (highest priority)
+        - Personal information (PII that wasn't scrubbed)
+        - Hate speech / slurs
+        - Violence / dangerous instructions
+        - Other harmful content
+    validations:
+      required: true
+
+  - type: input
+    id: conversation_id
+    attributes:
+      label: Conversation ID(s)
+      description: The conversation_id field(s) from the JSONL, if known
+      placeholder: "e.g. a1b2c3d4-..."
+    validations:
+      required: false
+
+  - type: input
+    id: batch_file
+    attributes:
+      label: Batch File
+      description: Which data/batch_*.jsonl file contains the content
+      placeholder: "e.g. data/batch_1710288000.jsonl"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the issue. Do NOT paste the harmful content itself — just describe what you found and where.
+      placeholder: "Conversation contains unredacted phone numbers in turn 3..."
+    validations:
+      required: true

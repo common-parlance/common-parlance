@@ -1,0 +1,10 @@
+# CSAM indicators — highest priority, criminal liability
+# One regex pattern per line. Lines starting with # are comments.
+# Patterns are case-insensitive.
+child\s+(?:porn|sex|abuse|exploit|erotic|nude)
+minor\s+(?:porn|sex|abuse|exploit|erotic|nude)
+underage\s+(?:porn|sex|abuse|exploit|erotic|nude)
+(?:porn|sex|erotic|nude)\s+(?:child|minor|underage|preteen|prepubescent)
+pedophil[ei]
+preteen\s+(?:sex|nude|erotic|naked)
+(?:sex|erotic|naked|nude)\s+(?:boy|girl)\s+(?:young|little|small)
