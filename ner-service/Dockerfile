@@ -14,4 +14,4 @@ RUN python -m spacy download ${SPACY_MODEL}
 COPY app.py .
 
 EXPOSE 7860
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860", "--limit-max-request-size", "2097152"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
