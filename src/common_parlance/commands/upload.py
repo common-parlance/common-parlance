@@ -50,7 +50,9 @@ def _preflight_checks(console, config, proxy_url: str, api_key: str) -> bool:
         return False
 
     # 4. NER service health — wake it up and wait for it to be ready
-    ner_url = config.get("ner_health_url", "https://common-parlance-ner-service.hf.space")
+    ner_url = config.get(
+        "ner_health_url", "https://common-parlance-ner-service.hf.space"
+    )
     console.print("[dim]Checking NER service...[/dim]", end="")
     ner_ready = False
     for attempt in range(6):  # up to ~60s for cold start
@@ -110,7 +112,7 @@ def run(args: argparse.Namespace) -> None:
         with Status(
             "Uploading conversations (NER scrubbing may take a moment)...",
             console=console,
-        ) as status:
+        ) as _status:
             count = upload_batch(
                 store, proxy_url=proxy_url, api_key=api_key, limit=args.limit
             )
