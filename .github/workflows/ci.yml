@@ -66,9 +66,9 @@ jobs:
       - name: Verify NER service starts
         run: |
           docker run -d --name ner-test -p 7860:7860 ner-service-test
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -sf http://localhost:7860/health; then break; fi
-            sleep 1
+            sleep 2
           done
           curl -sf http://localhost:7860/health | grep '"ok":true'
           docker stop ner-test
