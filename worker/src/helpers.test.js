@@ -5,7 +5,9 @@ import {
   generateHex,
   generateUserCode,
   checkRateLimit,
+  incrementRateLimit,
   checkGlobalRateLimit,
+  incrementGlobalRateLimit,
   decayTier,
   validateApiKey,
   contentHashHex,
@@ -133,20 +135,25 @@ describe("checkRateLimit", () => {
 
   it("blocks after tier 1 limit (10)", async () => {
     for (let i = 0; i < 10; i++) {
-      expect(await checkRateLimit("key123", env, 1)).toBe(true);
+      await incrementRateLimit("key123", env);
     }
     expect(await checkRateLimit("key123", env, 1)).toBe(false);
   });
 
   it("allows more requests for higher tiers", async () => {
     for (let i = 0; i < 25; i++) {
-      await checkRateLimit("key123", env, 2);
+      await incrementRateLimit("key123", env);
     }
     expect(await checkRateLimit("key123", env, 2)).toBe(false);
   });
 
   it("returns true when METRICS is not configured", async () => {
     expect(await checkRateLimit("key123", {}, 1)).toBe(true);
+  });
+
+  it("incrementRateLimit is no-op without METRICS", async () => {
+    await incrementRateLimit("key123", {});
+    // No error thrown
   });
 });
 
@@ -169,6 +176,11 @@ describe("checkGlobalRateLimit", () => {
       },
     };
     expect(await checkGlobalRateLimit(env)).toBe(false);
+  });
+
+  it("incrementGlobalRateLimit is no-op without METRICS", async () => {
+    await incrementGlobalRateLimit({});
+    // No error thrown
   });
 });
 

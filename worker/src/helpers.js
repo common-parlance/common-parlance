@@ -111,11 +111,16 @@ export async function checkRateLimit(apiKey, env, tier = 3) {
   const prefix = apiKey.slice(0, 16);
   const rateKey = `rate:${prefix}:${hour}`;
   const current = parseInt((await env.METRICS.get(rateKey)) || "0", 10);
-  if (current >= limit) {
-    return false;
-  }
+  return current < limit;
+}
+
+export async function incrementRateLimit(apiKey, env) {
+  if (!env.METRICS) return;
+  const hour = new Date().toISOString().slice(0, 13);
+  const prefix = apiKey.slice(0, 16);
+  const rateKey = `rate:${prefix}:${hour}`;
+  const current = parseInt((await env.METRICS.get(rateKey)) || "0", 10);
   await env.METRICS.put(rateKey, String(current + 1), { expirationTtl: 7200 });
-  return true;
 }
 
 export async function checkGlobalRateLimit(env) {
@@ -123,9 +128,15 @@ export async function checkGlobalRateLimit(env) {
   const minute = new Date().toISOString().slice(0, 16);
   const key = `global_rate:${minute}`;
   const current = parseInt((await env.METRICS.get(key)) || "0", 10);
-  if (current >= GLOBAL_RATE_LIMIT_PER_MINUTE) return false;
+  return current < GLOBAL_RATE_LIMIT_PER_MINUTE;
+}
+
+export async function incrementGlobalRateLimit(env) {
+  if (!env.METRICS) return;
+  const minute = new Date().toISOString().slice(0, 16);
+  const key = `global_rate:${minute}`;
+  const current = parseInt((await env.METRICS.get(key)) || "0", 10);
   await env.METRICS.put(key, String(current + 1), { expirationTtl: 300 });
-  return true;
 }
 
 // --- Trust tier management ---

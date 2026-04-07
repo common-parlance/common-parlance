@@ -9,7 +9,9 @@ import {
   incrementMetric,
   incrementMetricBy,
   checkGlobalRateLimit,
+  incrementGlobalRateLimit,
   checkRateLimit,
+  incrementRateLimit,
   contentHashHex,
   checkContentHash,
   recordContentHash,
@@ -146,66 +148,79 @@ async function uploadToHuggingFace(jsonlContent, env) {
 
 // --- Server-side NER scrubbing ---
 
-async function scrubViaNer(records, nerUrl, nerApiKey) {
-  // Flatten all turns from all records into a single NER request.
-  // The old per-record approach could exceed CF Worker's 30s wall-clock
-  // limit: N records × 15s timeout each. One batched call stays safe.
-  const turnCounts = records.map((r) => r.turns.length);
-  const allTurns = records.flatMap((r) => r.turns);
+const NER_BATCH_SIZE = 200; // NER service MAX_TURNS limit
 
+async function callNer(turns, nerUrl, nerApiKey) {
   const response = await fetch(`${nerUrl.replace(/\/$/, "")}/scrub`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(nerApiKey ? { "X-API-Key": nerApiKey } : {}),
     },
-    body: JSON.stringify({ turns: allTurns }),
-    signal: AbortSignal.timeout(20000),
+    body: JSON.stringify({ turns }),
+    signal: AbortSignal.timeout(25000),
   });
 
   if (!response.ok) {
     throw new Error(`NER service returned ${response.status}`);
   }
 
-  let scrubbed;
+  let result;
   try {
-    scrubbed = await response.json();
+    result = await response.json();
   } catch {
     throw new Error("NER service returned invalid JSON");
   }
 
-  if (!scrubbed.turns || !Array.isArray(scrubbed.turns)) {
+  if (!result.turns || !Array.isArray(result.turns)) {
     throw new Error("NER service returned unexpected response format");
   }
 
-  // Verify NER returned the same number of turns we sent.
-  // The NER service truncates at MAX_TURNS (200) — if we sent more,
-  // the tail would be silently dropped and never scrubbed.
-  if (scrubbed.turns.length !== allTurns.length) {
-    const msg = allTurns.length > 200
-      ? `Too many turns (${allTurns.length}) — NER service limit is 200`
-      : `NER turn count mismatch: sent ${allTurns.length}, got ${scrubbed.turns.length}`;
-    throw new Error(msg);
+  if (result.turns.length !== turns.length) {
+    throw new Error(
+      `NER turn count mismatch: sent ${turns.length}, got ${result.turns.length}`
+    );
+  }
+
+  return result;
+}
+
+async function scrubViaNer(records, nerUrl, nerApiKey) {
+  const turnCounts = records.map((r) => r.turns.length);
+  const allTurns = records.flatMap((r) => r.turns);
+
+  // Split into batches of NER_BATCH_SIZE to stay within the NER
+  // service's MAX_TURNS limit. Process sequentially to avoid
+  // overwhelming the service.
+  const scrubbedTurns = [];
+  const perTurnCounts = [];
+
+  for (let i = 0; i < allTurns.length; i += NER_BATCH_SIZE) {
+    const batch = allTurns.slice(i, i + NER_BATCH_SIZE);
+    const result = await callNer(batch, nerUrl, nerApiKey);
+    scrubbedTurns.push(...result.turns);
+    if (result.entities_per_turn) {
+      perTurnCounts.push(...result.entities_per_turn);
+    } else {
+      // Fallback: attribute all entities to first turn in batch
+      for (let j = 0; j < batch.length; j++) {
+        perTurnCounts.push(j === 0 ? (result.entities_found || 0) : 0);
+      }
+    }
   }
 
   // Reassemble: split scrubbed turns back into per-record groups.
-  // Use per-turn entity counts for accurate per-record attribution.
-  // Falls back to batch-level entities_found if the NER service
-  // doesn't support entities_per_turn yet (rolling deploy safety).
-  const perTurn = scrubbed.entities_per_turn;
   const results = [];
   let offset = 0;
   for (let i = 0; i < records.length; i++) {
     const count = turnCounts[i];
     const { turns: _origTurns, ...metadata } = records[i];
-    const recordEntities = perTurn
-      ? perTurn.slice(offset, offset + count).reduce((a, b) => a + b, 0)
-      : i === 0
-        ? scrubbed.entities_found || 0
-        : 0;
+    const recordEntities = perTurnCounts
+      .slice(offset, offset + count)
+      .reduce((a, b) => a + b, 0);
     results.push({
       ...metadata,
-      turns: scrubbed.turns.slice(offset, offset + count),
+      turns: scrubbedTurns.slice(offset, offset + count),
       _entities_found: recordEntities,
     });
     offset += count;
@@ -394,6 +409,9 @@ export async function handleUpload(request, env) {
   try {
     const result = await uploadToHuggingFace(finalJsonl, env);
     await recordContentHash(hashHex, env);
+    // Only count against rate limits on successful upload
+    await incrementRateLimit(apiKey, env);
+    await incrementGlobalRateLimit(env);
     await incrementMetric(env, "uploads_total");
     await incrementMetricBy(env, "conversations_total", validation.count);
 

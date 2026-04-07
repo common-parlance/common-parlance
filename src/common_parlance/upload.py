@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROXY_URL = DEFAULT_CONFIG["proxy_url"]
 DEFAULT_INTERVAL_HOURS = 24
 MAX_RETRIES = 5
-# Keep chunks under 1MB to stay well within CF free tier's 10ms CPU limit.
-# Base64 encoding ~1MB takes ~2-3ms, leaving headroom for JSON parsing + regex.
-# Data isn't urgent — we'd rather send more small chunks than risk CPU timeouts.
-MAX_BATCH_BYTES = 1 * 1024 * 1024  # 1MB per chunk
+# Keep chunks small so server-side NER can process all turns within the
+# Worker's 30s wall-clock limit. 256KB ≈ ~100-150 turns, well within the
+# NER service's capacity. Data isn't urgent — smaller chunks are safer.
+MAX_BATCH_BYTES = 256 * 1024  # 256KB per chunk
 # Delay between chunks to be gentle on the Worker and HuggingFace
 CHUNK_DELAY_SECONDS = 2.0
 
@@ -104,7 +104,7 @@ def _upload_one_chunk(
                     "Content-Type": "application/x-ndjson",
                     "Content-Encoding": "gzip",
                 },
-                timeout=30.0,
+                timeout=60.0,
             )
 
             if response.status_code == 401:
@@ -145,34 +145,56 @@ def _upload_one_chunk(
             response.raise_for_status()
             return "ok"
 
-        except (
-            httpx.HTTPStatusError,
-            httpx.ConnectError,
-            httpx.TimeoutException,
-        ) as exc:
+        except httpx.HTTPStatusError:
+            if response.status_code == 503:
+                try:
+                    body = response.json()
+                    msg = body.get("error", "")
+                except Exception:
+                    msg = ""
+                if "NER" in msg or "unavailable" in msg.lower():
+                    logger.error(
+                        "Upload blocked: NER service is unavailable.\n"
+                        "The NER service scrubs names and locations from your data.\n"
+                        "It may be starting up. Please wait a minute and try again."
+                    )
+                    return "ner_unavailable"
             if attempt < MAX_RETRIES - 1:
                 delay = _backoff_delay(attempt)
-                # HTTPStatusError str repr can include response body (PII risk)
-                if isinstance(exc, httpx.HTTPStatusError):
-                    detail = f"HTTP {response.status_code}"
-                    log_exc = False
-                else:
-                    detail = "connection error"
-                    log_exc = True
                 logger.warning(
-                    "Upload attempt %d/%d failed (%s), retrying in %.1fs",
+                    "Upload attempt %d/%d failed (HTTP %d), retrying in %.1fs",
                     attempt + 1,
                     MAX_RETRIES,
-                    detail,
+                    response.status_code,
                     delay,
-                    exc_info=log_exc,
                 )
                 time.sleep(delay)
             else:
                 logger.error(
                     "Upload failed after %d attempts.",
                     MAX_RETRIES,
-                    exc_info=not isinstance(exc, httpx.HTTPStatusError),
+                )
+                return "error"
+
+        except (
+            httpx.ConnectError,
+            httpx.TimeoutException,
+        ):
+            if attempt < MAX_RETRIES - 1:
+                delay = _backoff_delay(attempt)
+                logger.warning(
+                    "Upload attempt %d/%d failed (connection error), retrying in %.1fs",
+                    attempt + 1,
+                    MAX_RETRIES,
+                    delay,
+                    exc_info=True,
+                )
+                time.sleep(delay)
+            else:
+                logger.error(
+                    "Upload failed after %d attempts.",
+                    MAX_RETRIES,
+                    exc_info=True,
                 )
                 return "error"
 
@@ -279,6 +301,12 @@ def upload_batch(
                 )
         elif result == "auth":
             logger.error("Stopping upload — fix API key before retrying.")
+            break
+        elif result == "ner_unavailable":
+            logger.error("Stopping upload — NER service must be available.")
+            break
+        elif result == "rate_limited":
+            logger.error("Stopping upload — rate limit reached.")
             break
         else:
             logger.error(
