@@ -66,11 +66,17 @@ jobs:
       - name: Verify NER service starts
         run: |
           docker run -d --name ner-test -p 7860:7860 ner-service-test
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             if curl -sf http://localhost:7860/health; then break; fi
+            if ! docker ps -q -f name=ner-test | grep -q .; then
+              echo "Container exited unexpectedly:"
+              docker logs ner-test
+              exit 1
+            fi
             sleep 2
           done
           curl -sf http://localhost:7860/health | grep '"ok":true'
+          docker logs ner-test
           docker stop ner-test
 
   # --- Release jobs (tag push only) ---
