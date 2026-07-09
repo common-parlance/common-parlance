@@ -79,39 +79,16 @@ USER_CODE=$(echo "$INIT" | "$PYTHON" -c "import sys,json; print(json.load(sys.st
 echo "Device code: $DEVICE_CODE"
 echo "User code: $USER_CODE"
 
-# Get PoW challenge (uses user code, not device code)
 USER_CODE_NOHYPHEN=$(echo "$USER_CODE" | tr -d '-')
-echo -e "${DIM}Getting PoW challenge for $USER_CODE_NOHYPHEN...${NC}"
-CHALLENGE_RESP=$(curl -sf "$WORKER_URL/register/challenge/$USER_CODE_NOHYPHEN")
-CHALLENGE=$(echo "$CHALLENGE_RESP" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['challenge'])")
-DIFFICULTY=$(echo "$CHALLENGE_RESP" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['difficulty'])")
-echo "Challenge: $CHALLENGE (difficulty: $DIFFICULTY)"
 
-# Solve PoW
-echo -e "${DIM}Solving proof-of-work...${NC}"
-NONCE=$("$PYTHON" -c "
-import hashlib
-challenge = '$CHALLENGE'
-difficulty = $DIFFICULTY
-prefix = '0' * difficulty
-nonce = 0
-while True:
-    h = hashlib.sha256((challenge + str(nonce)).encode()).hexdigest()
-    if h.startswith(prefix):
-        print(nonce)
-        break
-    nonce += 1
-")
-echo "Nonce: $NONCE"
-
-# Complete registration (Turnstile test token always passes)
+# Complete registration (Turnstile test token always passes). Proof-of-work was
+# removed — Turnstile is the bot gate now.
 echo -e "${DIM}Completing registration...${NC}"
 COMPLETE=$(curl -sf -X POST "$WORKER_URL/register/complete" \
     -H "Content-Type: application/json" \
     -d "{
         \"user_code\": \"$USER_CODE\",
-        \"turnstile_token\": \"test-token\",
-        \"pow_nonce\": \"$NONCE\"
+        \"turnstile_token\": \"test-token\"
     }")
 echo "$COMPLETE" | "$PYTHON" -m json.tool
 

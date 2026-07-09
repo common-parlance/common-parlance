@@ -1,0 +1,20 @@
+{
+  "spec_version": "0.2.0",
+  "offset_unit": "codepoint",
+  "ner_models": {
+    "scrub": "en_core_web_lg==3.8.0",
+    "ner": "en_core_web_sm==3.8.0"
+  },
+  "dimensions": [
+    { "id": "vendor-prefixed-secrets", "file": "cases/vendor-prefixed-secrets.jsonl", "tier": "deterministic" },
+    { "id": "secret-structural", "file": "cases/secret-structural.jsonl", "tier": "deterministic" },
+    { "id": "entropy-tokens", "file": "cases/entropy-tokens.jsonl", "tier": "deterministic" },
+    { "id": "structured-pii", "file": "cases/structured-pii.jsonl", "tier": "deterministic" },
+    { "id": "paths-and-urls", "file": "cases/paths-and-urls.jsonl", "tier": "deterministic" },
+    { "id": "unicode-evasion", "file": "cases/unicode-evasion.jsonl", "tier": "deterministic" },
+    { "id": "code-identifier-guards", "file": "cases/code-identifier-guards.jsonl", "tier": "deterministic" },
+    { "id": "realcode-guards", "file": "cases/realcode-guards.jsonl", "tier": "deterministic" },
+    { "id": "ner-names", "file": "cases/ner-names.jsonl", "tier": "ner" },
+    { "id": "ner-locations", "file": "cases/ner-locations.jsonl", "tier": "ner" }
+  ]
+}

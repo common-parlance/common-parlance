@@ -30,8 +30,21 @@ _HOP_BY_HOP = frozenset(
 
 
 def is_chat_endpoint(path: str) -> bool:
-    """Check if the request path is a chat/completion endpoint."""
-    return any(chat_path in path for chat_path in CHAT_PATHS)
+    """Whether the request path is a chat/completion endpoint we should log.
+
+    Suffix match, not arbitrary substring: each CHAT_PATHS entry starts with
+    "/", so endswith requires a path-segment boundary. This keeps support for
+    reverse-proxy prefixes ("/prefix/v1/chat/completions") while rejecting a
+    chat path that is merely embedded — trailing garbage
+    ("/v1/chat/completions/extra") or, once the query is stripped by the
+    caller, a value smuggled into the query string. Over-matching here means
+    silently logging a non-chat request to the staging DB.
+
+    A trailing slash is normalized away first so a client that posts to
+    "/v1/chat/completions/" (FastAPI/redirect_slashes style) is still logged.
+    """
+    path = path.rstrip("/")
+    return any(path.endswith(chat_path) for chat_path in CHAT_PATHS)
 
 
 def _forward_headers(raw_headers: list[tuple[str, str]]) -> dict[str, str]:
@@ -97,11 +110,14 @@ def create_app(
         methods=["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH"],
     )
     async def proxy(request: Request, path: str) -> Response:
-        full_path = f"/{path}"
+        clean_path = f"/{path}"
+        full_path = clean_path
         if request.url.query:
             full_path = f"{full_path}?{request.url.query}"
 
-        is_chat = is_chat_endpoint(full_path)
+        # Match on the path only — a chat path smuggled into the query string
+        # must not flip a request into a logged chat exchange.
+        is_chat = is_chat_endpoint(clean_path)
         body = await request.body()
         headers = _forward_headers(list(request.headers.items()))
 
@@ -109,8 +125,14 @@ def create_app(
         is_streaming = request.headers.get("accept") == "text/event-stream"
 
         try:
-            if is_streaming and not (is_chat and db_path):
-                # Stream directly without buffering when we don't need to log
+            if is_streaming:
+                # Always stream to the client live so time-to-first-token is
+                # preserved (this proxy sits in front of the user's LLM). When
+                # the exchange also needs logging, TEE the bytes into a buffer
+                # and log from it in a background task after the stream closes —
+                # logging must never gate first-byte latency. (Previously a
+                # chat+logging request fell through to the fully-buffered path,
+                # which withheld the whole response until generation finished.)
                 req = client.build_request(
                     method=request.method,
                     url=full_path,
@@ -118,15 +140,52 @@ def create_app(
                     headers=headers,
                 )
                 upstream_resp = await client.send(req, stream=True)
-                return StreamingResponse(
-                    upstream_resp.aiter_bytes(),
-                    status_code=upstream_resp.status_code,
-                    headers=_forward_headers(list(upstream_resp.headers.items())),
-                    media_type=upstream_resp.headers.get("content-type"),
-                    background=BackgroundTask(upstream_resp.aclose),
+                resp_headers = _forward_headers(list(upstream_resp.headers.items()))
+                media_type = upstream_resp.headers.get("content-type")
+                should_log = (
+                    is_chat and db_path is not None and upstream_resp.is_success
                 )
 
-            # Non-streaming or chat endpoint we need to log: buffer the response
+                if not should_log:
+                    return StreamingResponse(
+                        upstream_resp.aiter_bytes(),
+                        status_code=upstream_resp.status_code,
+                        headers=resp_headers,
+                        media_type=media_type,
+                        background=BackgroundTask(upstream_resp.aclose),
+                    )
+
+                captured: list[bytes] = []
+
+                async def _tee() -> AsyncGenerator[bytes]:
+                    async for chunk in upstream_resp.aiter_bytes():
+                        captured.append(chunk)
+                        yield chunk
+
+                async def _close_and_log() -> None:
+                    await upstream_resp.aclose()
+                    response_text = b"".join(captured).decode("utf-8", errors="replace")
+                    try:
+                        exchange_id = await asyncio.to_thread(
+                            _log_exchange_sync,
+                            db_path,
+                            str(uuid.uuid4()),
+                            body.decode("utf-8", errors="replace"),
+                            response_text,
+                        )
+                        logger.info("Logged streamed exchange %s", exchange_id)
+                    except Exception as exc:
+                        logger.warning("Failed to log exchange: %s", type(exc).__name__)
+
+                return StreamingResponse(
+                    _tee(),
+                    status_code=upstream_resp.status_code,
+                    headers=resp_headers,
+                    media_type=media_type,
+                    background=BackgroundTask(_close_and_log),
+                )
+
+            # Non-streaming: buffer the response (logged below if it's a chat).
             upstream_resp = await client.request(
                 method=request.method,
                 url=full_path,

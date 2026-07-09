@@ -54,6 +54,20 @@ export async function hashIpForRateLimit(ip, date) {
     .join("");
 }
 
+// Opaque, collision-resistant id derived from the FULL API key, for use as a
+// KV key-name component (rate buckets, contribution tracking). Hashing the
+// whole key — instead of slicing its first 16 chars — keeps a piece of the
+// live secret out of the KV keyspace (and out of any dashboard/log that shows
+// key names), and removes the prefix-collision risk where two keys sharing a
+// 16-char prefix landed in the same bucket. 16 bytes (128 bits) of SHA-256.
+export async function apiKeyId(apiKey) {
+  const data = new TextEncoder().encode(`${apiKey}:cp-key-id`);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(hash).slice(0, 16)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 // --- Metrics ---
 // Note: KV is eventually consistent (~60s) with no atomic increment.
 // These read-then-write counters can lose increments under concurrency.
@@ -90,7 +104,6 @@ export async function getMetrics(env) {
     "dedup_blocks_total",
     "cooldown_blocks_total",
     "global_rate_limited_total",
-    "pow_failures_total",
   ];
   const metrics = {};
   for (const key of keys) {
@@ -102,14 +115,15 @@ export async function getMetrics(env) {
 // --- Rate limiting ---
 // Same KV eventual-consistency caveat as metrics above. Concurrent
 // requests can slip past limits. This is defense-in-depth, not a
-// security boundary — real abuse protection is Turnstile + PoW + trust tiers.
+// security boundary — real abuse protection is Turnstile + trust tiers (plus
+// the native Rate Limiting binding on /register/init; PoW was removed).
 
 export async function checkRateLimit(apiKey, env, tier = 3) {
   if (!env.METRICS) return true;
   const limit = TIER_LIMITS[tier] || TIER_LIMITS[1];
   const hour = new Date().toISOString().slice(0, 13);
-  const prefix = apiKey.slice(0, 16);
-  const rateKey = `rate:${prefix}:${hour}`;
+  const id = await apiKeyId(apiKey);
+  const rateKey = `rate:${id}:${hour}`;
   const current = parseInt((await env.METRICS.get(rateKey)) || "0", 10);
   return current < limit;
 }
@@ -117,8 +131,8 @@ export async function checkRateLimit(apiKey, env, tier = 3) {
 export async function incrementRateLimit(apiKey, env) {
   if (!env.METRICS) return;
   const hour = new Date().toISOString().slice(0, 13);
-  const prefix = apiKey.slice(0, 16);
-  const rateKey = `rate:${prefix}:${hour}`;
+  const id = await apiKeyId(apiKey);
+  const rateKey = `rate:${id}:${hour}`;
   const current = parseInt((await env.METRICS.get(rateKey)) || "0", 10);
   await env.METRICS.put(rateKey, String(current + 1), { expirationTtl: 7200 });
 }
@@ -166,7 +180,12 @@ export async function validateApiKey(apiKey, env) {
   try {
     return JSON.parse(userData);
   } catch {
-    return { valid: true };
+    // Fail closed: a key whose stored metadata isn't valid JSON is malformed,
+    // not a "legacy" grant. Returning a truthy user here let a corrupt/
+    // fat-fingered KV value authenticate as a tier-3 (top-budget) uploader.
+    // Reject it instead. (There is no documented bare-string key format.)
+    console.error("API key has non-JSON metadata — rejecting");
+    return null;
   }
 }
 

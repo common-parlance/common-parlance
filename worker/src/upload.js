@@ -17,6 +17,7 @@ import {
   recordContentHash,
   validateApiKey,
   decayTier,
+  apiKeyId,
 } from "./helpers.js";
 import { KEY_COOLDOWN_SECONDS } from "./registration.js";
 
@@ -26,6 +27,26 @@ import { KEY_COOLDOWN_SECONDS } from "./registration.js";
 const CONTRIBUTION_TTL = 90 * 24 * 3600; // 90 days
 
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+
+// The exact fields the reference client emits. validateJsonl rejects any
+// others: only turn.content is scanned by checkContent/checkPii, so an unknown
+// top-level field (e.g. "notes") or turn field would otherwise be accepted AND
+// preserved into the published record (the upload path spreads ...record),
+// smuggling unscanned free text into the public dataset.
+const ALLOWED_RECORD_KEYS = new Set([
+  "conversation_id",
+  "turns",
+  "turn_count",
+  "language",
+  "quality_signals",
+  "ner_scrubbed",
+]);
+const ALLOWED_TURN_KEYS = new Set(["role", "content"]);
+// The published dataset is defined as human+assistant turns only; system/tool
+// turns (and system prompts) are stripped client-side (extract.py filters to
+// user/assistant). Enforce that at the trust boundary so a non-reference or
+// bypassing client can't smuggle a system prompt into the public dataset.
+const ALLOWED_ROLES = new Set(["user", "assistant"]);
 
 // --- JSONL validation ---
 
@@ -41,9 +62,19 @@ export function validateJsonl(text) {
       return { error: `Invalid JSON on line ${i + 1}` };
     }
 
-    if (!record.conversation_id || !Array.isArray(record.turns)) {
+    if (!Array.isArray(record.turns)) {
+      return { error: `Line ${i + 1}: missing turns array` };
+    }
+    // conversation_id is interpolated into error/log lines and published to the
+    // dataset, so constrain it to a bounded safe-charset token (the reference
+    // client emits a uuid4). Rejecting whitespace/control chars closes a
+    // log-injection vector and keeps malformed ids out of the corpus.
+    if (
+      typeof record.conversation_id !== "string" ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(record.conversation_id)
+    ) {
       return {
-        error: `Line ${i + 1}: missing conversation_id or turns array`,
+        error: `Line ${i + 1}: conversation_id must match [A-Za-z0-9_-]{1,128}`,
       };
     }
 
@@ -51,19 +82,65 @@ export function validateJsonl(text) {
     if (typeof record.turn_count !== "number" || !Number.isInteger(record.turn_count)) {
       return { error: `Line ${i + 1}: turn_count must be an integer` };
     }
-    if (record.language !== null && typeof record.language !== "string") {
-      return { error: `Line ${i + 1}: language must be a string or null` };
+    // language is a detected language code (e.g. "en", "zh-cn") or null — NOT
+    // free text. Constraining it (and role/quality_signals below) closes a PII
+    // channel: content/PII filters only scan turn.content, so a record with
+    // `language: "my SSN is 123-45-6789"` or a string-valued quality signal
+    // would otherwise carry PII to the dataset unscanned.
+    if (
+      record.language !== null &&
+      (typeof record.language !== "string" ||
+        !/^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(record.language))
+    ) {
+      return { error: `Line ${i + 1}: language must be a BCP47-style code or null` };
     }
     if (record.quality_signals === null || typeof record.quality_signals !== "object" || Array.isArray(record.quality_signals)) {
       return { error: `Line ${i + 1}: quality_signals must be an object` };
     }
+    // quality_signals carries only numeric/boolean metrics — reject string or
+    // nested values that could smuggle free text.
+    for (const v of Object.values(record.quality_signals)) {
+      if (typeof v !== "number" && typeof v !== "boolean") {
+        return {
+          error: `Line ${i + 1}: quality_signals values must be numbers or booleans`,
+        };
+      }
+    }
     if (typeof record.ner_scrubbed !== "boolean") {
       return { error: `Line ${i + 1}: ner_scrubbed must be a boolean` };
     }
+    // Strict schema: reject unknown top-level fields so they can't ride into
+    // the published record unscanned (see ALLOWED_RECORD_KEYS above).
+    for (const key of Object.keys(record)) {
+      if (!ALLOWED_RECORD_KEYS.has(key)) {
+        return { error: `Line ${i + 1}: unexpected field "${key}"` };
+      }
+    }
 
     for (const turn of record.turns) {
-      if (!turn.role || !turn.content) {
-        return { error: `Line ${i + 1}: turn missing role or content` };
+      // Each turn must be a plain object — a null/array/primitive element would
+      // throw on turn.role below (→ 500). Reject as a clean 422 instead.
+      if (turn === null || typeof turn !== "object" || Array.isArray(turn)) {
+        return { error: `Line ${i + 1}: each turn must be an object` };
+      }
+      // Require strings, not just truthy — a non-string content (number,
+      // object, array, true) would pass a truthiness check, then throw in
+      // normalizeUnicode().normalize() (→ 500, and the content/PII filters
+      // silently skipped). Reject as a clean 422 instead.
+      if (typeof turn.role !== "string" || typeof turn.content !== "string") {
+        return { error: `Line ${i + 1}: turn role and content must be strings` };
+      }
+      // Only user/assistant turns are publishable (see ALLOWED_ROLES) — this
+      // also keeps role from being a free-text channel that carries PII.
+      if (!ALLOWED_ROLES.has(turn.role)) {
+        return { error: `Line ${i + 1}: turn role must be "user" or "assistant"` };
+      }
+      // Reject unknown turn fields for the same reason as the record-level
+      // allowlist — only content is scanned.
+      for (const key of Object.keys(turn)) {
+        if (!ALLOWED_TURN_KEYS.has(key)) {
+          return { error: `Line ${i + 1}: unexpected turn field "${key}"` };
+        }
       }
 
       const blocked = checkContent(turn.content);
@@ -287,6 +364,23 @@ export async function handleUpload(request, env) {
     );
   }
 
+  // Atomic anti-burst cap (native binding) checked BEFORE the expensive body
+  // parse / NER / HF work. The tier check above is a raced KV read-then-write;
+  // a concurrent burst can pass it en masse before any increment sticks. The
+  // native limiter is atomic, so it bounds the burst per key. Falls back to the
+  // KV counters alone when the binding isn't configured.
+  if (env.UPLOAD_RATE_LIMITER) {
+    const id = await apiKeyId(apiKey);
+    const { success } = await env.UPLOAD_RATE_LIMITER.limit({ key: id });
+    if (!success) {
+      await incrementMetric(env, "global_rate_limited_total");
+      return jsonResponse(
+        { error: "Rate limit exceeded. Try again later." },
+        429
+      );
+    }
+  }
+
   // Parse body with streaming size enforcement for gzip
   let jsonlContent;
   const encoding = request.headers.get("content-encoding") || "";
@@ -376,6 +470,18 @@ export async function handleUpload(request, env) {
   // Server-side NER
   let finalJsonl = jsonlContent;
   const nerUrl = env.NER_SERVICE_URL;
+  // Fail closed when NER is unconfigured: without this, an empty NER_SERVICE_URL
+  // (a one-line deploy slip) silently ships content with no server-side name
+  // scrubbing. A deployer who genuinely wants no server NER must opt in
+  // explicitly with ALLOW_NO_NER="true".
+  if (!nerUrl && env.ALLOW_NO_NER !== "true") {
+    await incrementMetric(env, "ner_errors_total");
+    console.error("NER_SERVICE_URL not set and ALLOW_NO_NER!=true — refusing upload");
+    return jsonResponse(
+      { error: "Server-side scrubbing is not configured. Please retry later." },
+      503
+    );
+  }
   if (nerUrl) {
     try {
       const scrubbed = await scrubViaNer(
@@ -416,8 +522,8 @@ export async function handleUpload(request, env) {
     await incrementMetricBy(env, "conversations_total", validation.count);
 
     // Track contribution for 90-day rollback window
-    const prefix = apiKey.slice(0, 16);
-    const contribKey = `contrib:${prefix}:${result._filePath}`;
+    const keyId = await apiKeyId(apiKey);
+    const contribKey = `contrib:${keyId}:${result._filePath}`;
     await env.METRICS.put(contribKey, String(validation.count), {
       expirationTtl: CONTRIBUTION_TTL,
     });

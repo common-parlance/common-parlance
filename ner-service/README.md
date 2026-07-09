@@ -11,7 +11,7 @@ app_port: 7860
 
 Server-side Named Entity Recognition for the [Common Parlance](https://github.com/common-parlance/common-parlance) project.
 
-Catches names, locations, and organizations that client-side regex scrubbing can't detect. This is a defense-in-depth layer -- the client already strips emails, phones, SSNs, IPs, file paths, and API keys before data reaches this service.
+Catches names and locations that client-side regex scrubbing can't detect. This is a defense-in-depth layer -- the client already strips emails, phones, SSNs, IPs, file paths, and API keys before data reaches this service. (Organization/product names are intentionally **not** redacted: the NER is noisy on them and they are high-utility, low-risk in technical text; genuinely sensitive internal names are caught at review.)
 
 ## API
 
@@ -20,18 +20,19 @@ Catches names, locations, and organizations that client-side regex scrubbing can
 ```json
 {
   "turns": [
-    {"role": "user", "content": "My friend Alice at Google helped me debug this"},
+    {"role": "user", "content": "My friend Alice in Paris helped me debug this"},
     {"role": "assistant", "content": "That's great! Here's how to fix it..."}
   ]
 }
 ```
 
-Response:
+Response (only PERSON and LOCATION are detected — ORG is intentionally not, so
+e.g. "Google" would pass through unredacted):
 
 ```json
 {
   "turns": [
-    {"role": "user", "content": "My friend [NAME] at [ORG] helped me debug this"},
+    {"role": "user", "content": "My friend [NAME_1] in [LOCATION] helped me debug this"},
     {"role": "assistant", "content": "That's great! Here's how to fix it..."}
   ],
   "entities_found": 2

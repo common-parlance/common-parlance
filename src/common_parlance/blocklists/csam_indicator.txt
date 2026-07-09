@@ -1,10 +1,13 @@
 # CSAM indicators — highest priority, criminal liability
 # One regex pattern per line. Lines starting with # are comments.
 # Patterns are case-insensitive.
-child\s+(?:porn|sex|abuse|exploit|erotic|nude)
-minor\s+(?:porn|sex|abuse|exploit|erotic|nude)
-underage\s+(?:porn|sex|abuse|exploit|erotic|nude)
-(?:porn|sex|erotic|nude)\s+(?:child|minor|underage|preteen|prepubescent)
+# \s* (not \s+) between keywords: the separator-collapse turns "child.porn"
+# into "childporn" (no space), and a bare "childporn" has no space either, so
+# \s+ missed both. \s* matches the spaced, separated, and concatenated forms.
+child\s*(?:porn|sex|abuse|exploit|erotic|nude)
+minor\s*(?:porn|sex|abuse|exploit|erotic|nude)
+underage\s*(?:porn|sex|abuse|exploit|erotic|nude)
+(?:porn|sex|erotic|nude)\s*(?:child|minor|underage|preteen|prepubescent)
 pedophil[ei]
-preteen\s+(?:sex|nude|erotic|naked)
-(?:sex|erotic|naked|nude)\s+(?:boy|girl)\s+(?:young|little|small)
+preteen\s*(?:sex|nude|erotic|naked)
+(?:sex|erotic|naked|nude)\s*(?:boy|girl)\s*(?:young|little|small)

@@ -55,11 +55,19 @@ def _chunk_rows(rows: list, max_bytes: int = MAX_BATCH_BYTES) -> list[list]:
                 row.get("id", "unknown"),
             )
             continue
+        # The worker validates `language` as a BCP47-style code or null. The
+        # "unknown" sentinel detect_language emits for short/code-heavy/empty
+        # text is neither, so the worker would reject the record (422) and the
+        # client would retry it every cycle, never uploading. Send null — which
+        # the worker accepts — instead.
+        language = row["language"]
+        if language == "unknown":
+            language = None
         record = {
             "conversation_id": str(uuid.uuid4()),
             "turns": turns,
             "turn_count": row["turn_count"],
-            "language": row["language"],
+            "language": language,
             "quality_signals": signals,
             "ner_scrubbed": bool(row["ner_scrubbed"]),
         }

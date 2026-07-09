@@ -53,13 +53,40 @@ describe("validateJsonl", () => {
   it("rejects missing conversation_id", () => {
     const jsonl = JSON.stringify({ turns: [turn("user", "Hi")] });
     const result = validateJsonl(jsonl);
-    expect(result.error).toMatch(/missing conversation_id/);
+    expect(result.error).toMatch(/conversation_id must match/);
   });
 
   it("rejects missing turns array", () => {
     const jsonl = JSON.stringify({ conversation_id: "x" });
     const result = validateJsonl(jsonl);
-    expect(result.error).toMatch(/missing conversation_id or turns/);
+    expect(result.error).toMatch(/missing turns array/);
+  });
+
+  it("rejects a conversation_id with control chars (log injection)", () => {
+    const jsonl = line("ok\ninjected log line", [
+      turn("user", "Hi"),
+      turn("assistant", "Hello"),
+    ]);
+    const result = validateJsonl(jsonl);
+    expect(result.error).toMatch(/conversation_id must match/);
+  });
+
+  it("rejects an over-long conversation_id", () => {
+    const jsonl = line("a".repeat(129), [
+      turn("user", "Hi"),
+      turn("assistant", "Hello"),
+    ]);
+    const result = validateJsonl(jsonl);
+    expect(result.error).toMatch(/conversation_id must match/);
+  });
+
+  it("accepts a uuid4 conversation_id", () => {
+    const jsonl = line("550e8400-e29b-41d4-a716-446655440000", [
+      turn("user", "Hi"),
+      turn("assistant", "Hello"),
+    ]);
+    const result = validateJsonl(jsonl);
+    expect(result.error).toBeUndefined();
   });
 
   // --- Metadata validation ---
@@ -85,7 +112,36 @@ describe("validateJsonl", () => {
   it("rejects non-string language", () => {
     const jsonl = line("x", [turn("user", "Hi"), turn("assistant", "Hello")], { language: 42 });
     const result = validateJsonl(jsonl);
-    expect(result.error).toMatch(/language must be a string or null/);
+    expect(result.error).toMatch(/language must be a BCP47-style code or null/);
+  });
+
+  it("rejects PII smuggled in the language field", () => {
+    const jsonl = line("x", [turn("user", "Hi"), turn("assistant", "Hello")], {
+      language: "my SSN is 123-45-6789",
+    });
+    expect(validateJsonl(jsonl).error).toMatch(/language must be a BCP47-style/);
+  });
+
+  it("accepts a region-tagged language code", () => {
+    const jsonl = line("x", [turn("user", "Hi"), turn("assistant", "Hello")], {
+      language: "zh-cn",
+    });
+    expect(validateJsonl(jsonl).error).toBeUndefined();
+  });
+
+  it("rejects PII smuggled in a quality_signals value", () => {
+    const jsonl = line("x", [turn("user", "Hi"), turn("assistant", "Hello")], {
+      quality_signals: { note: "email bob@evil.com", total_length: 20 },
+    });
+    expect(validateJsonl(jsonl).error).toMatch(/quality_signals values must be/);
+  });
+
+  it("rejects PII smuggled in a turn role", () => {
+    const jsonl = line("x", [
+      turn("my SSN is 123-45-6789", "Hi"),
+      turn("assistant", "Hello"),
+    ]);
+    expect(validateJsonl(jsonl).error).toMatch(/role must be "user" or "assistant"/);
   });
 
   it("accepts null language", () => {
@@ -123,13 +179,20 @@ describe("validateJsonl", () => {
   it("rejects turn without role", () => {
     const jsonl = line("x", [{ content: "hi" }]);
     const result = validateJsonl(jsonl);
-    expect(result.error).toMatch(/turn missing role or content/);
+    expect(result.error).toMatch(/role and content must be strings/);
   });
 
   it("rejects turn without content", () => {
     const jsonl = line("x", [{ role: "user" }]);
     const result = validateJsonl(jsonl);
-    expect(result.error).toMatch(/turn missing role or content/);
+    expect(result.error).toMatch(/role and content must be strings/);
+  });
+
+  it("rejects non-string content (no 500, filters not skipped)", () => {
+    for (const bad of [123, { x: 1 }, ["a"], true]) {
+      const result = validateJsonl(line("x", [{ role: "user", content: bad }]));
+      expect(result.error).toMatch(/role and content must be strings/);
+    }
   });
 
   // --- Content filtering integration ---

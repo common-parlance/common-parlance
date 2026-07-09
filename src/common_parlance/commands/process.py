@@ -14,7 +14,7 @@ def run(args: argparse.Namespace) -> None:
 
     from common_parlance.config import load_config, save_config
     from common_parlance.db import ConversationStore
-    from common_parlance.filter import create_content_filter
+    from common_parlance.filter import CompositeContentFilter, create_content_filter
     from common_parlance.process import process_batch
     from common_parlance.scrub import create_scrubber
 
@@ -33,10 +33,11 @@ def run(args: argparse.Namespace) -> None:
             console.print(
                 "\n[yellow]Local NER (name/address detection)"
                 " is not installed.[/yellow]\n"
-                "[dim]Server-side NER will still catch names"
-                " before publishing,\n"
-                "but local NER adds an extra scrubbing layer"
-                " on your machine.[/dim]\n"
+                "[dim]Server-side NER adds another pass before"
+                " publishing, but no automated pass catches every"
+                " name —\nreview each conversation before approving."
+                " Installing local NER adds an extra scrubbing"
+                " layer on your machine.[/dim]\n"
             )
 
             if sys.stdin.isatty():
@@ -85,7 +86,13 @@ def run(args: argparse.Namespace) -> None:
         return
 
     with ConversationStore(db_path) as store:
-        content_filter = create_content_filter()
+        # ML content filter (Detoxify) layers on top of the keyword blocklist
+        # when the [ml] extra is installed; on by default, opt out with
+        # `common-parlance config use_ml_filter false`.
+        use_ml = config.get("use_ml_filter", True)
+        content_filter = create_content_filter(use_ml=use_ml)
+        if isinstance(content_filter, CompositeContentFilter):
+            console.print("[dim]ML content filter active (Detoxify).[/dim]")
 
         console.print(f"[bold]Processing up to {args.limit} exchanges...[/bold]")
         count = process_batch(
@@ -108,6 +115,33 @@ def run(args: argparse.Namespace) -> None:
                 result = audit_conversations(pending)
                 _print_audit(result, console, brief=True)
 
+        # Warn about non-English conversations: both the local and server-side
+        # NER passes are English-only, so PII detection is weaker for other
+        # languages. Surface this before review/auto-approve so the user knows
+        # to look harder at (or skip) those conversations. "unknown" is left out
+        # because it is ambiguous (short/code-heavy text), not a positive signal
+        # of non-English content.
+        lang_counts = store.pending_language_counts()
+        non_english = {
+            lang: n for lang, n in lang_counts.items() if lang not in ("en", "unknown")
+        }
+        if non_english:
+            total = sum(non_english.values())
+            summary = ", ".join(
+                f"{lang} ({n})"
+                for lang, n in sorted(non_english.items(), key=lambda kv: -kv[1])
+            )
+            console.print(
+                f"\n[bold yellow]⚠ {total} pending conversation(s) detected as "
+                f"non-English ({summary}).[/bold yellow]"
+            )
+            console.print(
+                "[yellow]  PII scrubbing (regex + NER) is tuned for English; "
+                "names, places, and other PII in other languages are more likely "
+                "to survive. Review these especially carefully before "
+                "approving.[/yellow]"
+            )
+
         # Check persistent config if CLI flag not set
         auto_approve = args.auto_approve or config.get("auto_approve", False)
 
@@ -115,8 +149,20 @@ def run(args: argparse.Namespace) -> None:
             pending = store.get_pending_review()
             if pending:
                 store.approve_batch([row["id"] for row in pending])
+                # Loud, not reassuring: auto-approve skips the human review that
+                # is the last line of defense when the automated filters miss
+                # something. Make the bypass and the shifted responsibility
+                # explicit every run, rather than a green "all good" message.
                 console.print(
-                    f"[green]Auto-approved {len(pending)} conversations.[/green]"
+                    f"[bold yellow]⚠ Auto-approved {len(pending)} "
+                    f"conversation(s) WITHOUT human review.[/bold yellow]"
+                )
+                console.print(
+                    "[yellow]  The content/PII filters catch most issues but "
+                    "miss some; with review skipped, anything they miss will be "
+                    "uploaded. You are responsible for what you publish.\n"
+                    "  Disable with: [bold]common-parlance config auto_approve "
+                    "false[/bold][/yellow]"
                 )
 
         # Next-step hint

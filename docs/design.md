@@ -28,7 +28,7 @@ There are two ways to get conversations in: import existing exports, or capture 
 
 **Engine-agnostic proxy.** Works with any OpenAI-compatible or Ollama endpoint. The proxy adds near-zero latency — the bottleneck is always the model, never the proxy.
 
-**Local-first privacy.** All PII scrubbing happens on the user's machine before anything is uploaded. The server runs a second NER pass as defense-in-depth, but the client never sends unscrubbed data.
+**Local-first scrubbing; server-side name detection.** Structured PII — emails, phone numbers, SSNs, API keys, IP addresses, file paths — is scrubbed locally by regex before anything is uploaded. Name and location detection (NER) runs server-side as a required pre-publication pass; users who install the optional `[ner]` extra also get a local NER pass (Presidio + spaCy) for extra coverage. So in the default install, conversation text that may still contain names reaches the NER service — under the auth-proxy trust model, never HuggingFace directly — before it is scrubbed and published. Nothing is published without the contributor's review, which is the real safeguard.
 
 **Auth proxy pattern.** Clients never talk to HuggingFace directly. A Cloudflare Worker validates API keys, checks content, and forwards to HuggingFace with server-held credentials. No secrets in the client package.
 

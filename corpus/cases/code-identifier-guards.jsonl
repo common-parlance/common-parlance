@@ -1,0 +1,6 @@
+{"id":"guard-java-package","surfaces":["scrub","worker"],"input":"import com.google.common.collect.ImmutableList here","sensitive":[],"guard":["com.google.common.collect.ImmutableList"]}
+{"id":"guard-maven-coordinate","surfaces":["scrub","worker"],"input":"use org.apache.commons.lang3.StringUtils now","sensitive":[],"guard":["org.apache.commons.lang3.StringUtils"]}
+{"id":"guard-camelcase-objc","surfaces":["scrub","worker"],"input":"class NSURLSessionDataTaskDelegate impl","sensitive":[],"guard":["NSURLSessionDataTaskDelegate"]}
+{"id":"guard-camelcase-with-digit","surfaces":["scrub","worker"],"input":"call OAuth2AuthorizationCodeGrant handler","sensitive":[],"guard":["OAuth2AuthorizationCodeGrant"]}
+{"id":"guard-screaming-snake-const","surfaces":["scrub","worker"],"input":"const MAX_RETRY_ATTEMPTS_BEFORE_FAILURE set","sensitive":[],"guard":["MAX_RETRY_ATTEMPTS_BEFORE_FAILURE"]}
+{"id":"guard-semver-build-metadata","surfaces":["scrub","worker"],"input":"build 1.2.3-beta+exp.sha.5114f85 done","sensitive":[],"guard":["1.2.3-beta+exp.sha.5114f85"]}

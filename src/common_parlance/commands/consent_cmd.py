@@ -64,8 +64,9 @@ def run(args: argparse.Namespace) -> None:
             "[yellow]Consent revoked. Future conversations will not be logged.[/yellow]"
         )
         console.print(
-            "[dim]Note: already-uploaded anonymous data cannot be "
-            "removed from the dataset.[/dim]"
+            "[dim]Note: data already uploaded stays in the dataset. Within "
+            "90 days of upload you can request removal; after that it can no "
+            "longer be traced to you or removed.[/dim]"
         )
     else:
         # Default: show status

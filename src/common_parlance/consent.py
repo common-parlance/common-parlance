@@ -5,8 +5,9 @@ Follows the Angular CLI pattern: prompt on first run, save decision to
 config, never ask again. Skip in non-TTY environments.
 
 The raw conversations contain personal data until PII scrubbing, so we
-need consent for the local processing step. Once scrubbed and uploaded,
-data is anonymous — but we're transparent about that.
+need consent for the local processing step. Scrubbing reduces
+re-identification risk but does not make the data anonymous — we say so
+plainly in the consent text rather than over-claiming.
 """
 
 import logging
@@ -31,21 +32,32 @@ ODC-BY 1.0[/link] license (Open Data Commons Attribution).
 [bold]What is NOT collected:[/bold]
   • Model names, system prompts, or engine metadata
   • IP addresses, device info, or any client metadata
-  • Names, emails, or other personal information (scrubbed before upload)
+  • Names, emails, or other personal information (removed before publishing — see below)
 
 [bold]How it works:[/bold]
   1. Import existing conversations or capture new ones via the proxy
-  2. PII (names, emails, phones, etc.) is scrubbed locally before upload
-  3. You can review and approve/reject conversations before they're shared
-  4. Approved conversations are uploaded anonymously — no user ID attached
+  2. Structured PII (emails, phones, API keys) is scrubbed locally before upload
+  3. You review and approve/reject conversations before they're shared
+  4. On upload, the text is sent to our scrubbing service over HTTPS, which
+     removes names and places server-side before publishing — no user ID or
+     device metadata is attached
 
-[bold]Important:[/bold]
-  • For 90 days after upload, your contributions can be removed on request
-  • After 90 days, the tracking expires and contributions become permanently anonymous
-  • You can stop contributing at any time: [dim]common-parlance consent --revoke[/dim]
-  • Revoking consent stops future collection immediately
+[bold]Important — please read:[/bold]
+  • PII scrubbing is best-effort and tuned for English. Detection is strongest
+    for structured data (emails, phones, keys) and English names/places;
+    other-language or unusual PII can slip through. Your review is the real
+    safeguard — only share conversations you're comfortable releasing publicly.
+  • Scrubbing reduces re-identification risk but does not make data anonymous:
+    writing style and rare details can still identify you. Treat contributions
+    as public data you have chosen to release.
+  • For 90 days after upload, your contributions can be removed on request.
+    After that the tracking expires and they can no longer be traced to you
+    or selectively removed.
+  • Stop contributing at any time: [dim]common-parlance consent --revoke[/dim]
+    (revoking stops future collection immediately)
 
 [dim]Full privacy policy: https://github.com/common-parlance/common-parlance/blob/main/PRIVACY.md[/dim]
+[dim]Full terms: https://github.com/common-parlance/common-parlance/blob/main/TERMS.md[/dim]
 """
 
 

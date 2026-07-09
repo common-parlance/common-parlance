@@ -1,10 +1,15 @@
 /**
- * Registration handlers: device auth flow, Turnstile verification, PoW validation.
+ * Registration handlers: device auth flow, Turnstile verification.
  *
  * Implements the OAuth-style device code flow for anonymous API key registration:
  * 1. CLI calls /register/init → gets device_code + user_code
- * 2. User opens browser, enters code, solves Turnstile + PoW
+ * 2. User opens browser, enters code, solves Turnstile
  * 3. CLI polls /register/poll/:device_code until key is ready
+ *
+ * Turnstile is the bot gate. A standalone proof-of-work was removed: Turnstile
+ * already runs a browser challenge (including its own PoW) plus risk signals,
+ * so a second app-level PoW added latency and code with no marginal abuse
+ * resistance (an attacker who can pass Turnstile can trivially solve our PoW).
  */
 
 import { jsonResponse, htmlResponse, generateHex, generateUserCode, hashIpForRateLimit, incrementMetric } from "./helpers.js";
@@ -19,28 +24,7 @@ let REG_INIT_RATE_LIMIT_PER_MINUTE = 10; // per IP, prevents /register/init floo
 const TURNSTILE_VERIFY_URL =
   "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-// --- Proof-of-Work ---
-// Client must find a nonce where SHA-256(challenge + nonce) starts with
-// POW_DIFFICULTY zero hex chars. ~5s on typical hardware at difficulty 5.
-const POW_DIFFICULTY = 5;
-const POW_CHALLENGE_TTL = 300; // 5 minutes
-
 export { KEY_COOLDOWN_SECONDS };
-
-// --- Proof-of-Work helpers ---
-
-function generatePowChallenge() {
-  return generateHex(16); // 32-char random challenge
-}
-
-async function verifyPow(challenge, nonce, difficulty = POW_DIFFICULTY) {
-  const data = new TextEncoder().encode(challenge + nonce);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  const hex = [...new Uint8Array(hash)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  return hex.startsWith("0".repeat(difficulty));
-}
 
 // --- Registration handlers ---
 
@@ -49,23 +33,37 @@ export async function handleRegisterInit(request, env) {
   const date = new Date().toISOString().slice(0, 10);
   const ipHash = await hashIpForRateLimit(ip, date);
 
-  // Per-IP per-minute rate limit on init endpoint (prevents flooding)
-  const initRateMax = parseInt(env.REG_INIT_RATE_LIMIT_PER_MINUTE || REG_INIT_RATE_LIMIT_PER_MINUTE, 10);
-  const minute = new Date().toISOString().slice(0, 16);
-  const initRateKey = `reg_init:${ipHash}:${minute}`;
-  const initCount = parseInt(
-    (await env.METRICS.get(initRateKey)) || "0",
-    10
-  );
-  if (initCount >= initRateMax) {
-    return jsonResponse(
-      { error: "Too many requests. Please wait a moment." },
-      429
+  // Per-IP per-minute flood limit on /register/init. Prefer the native Workers
+  // Rate Limiting binding (atomic — no read-then-write race) when it is
+  // configured; the KV counter below is a fallback that can lose increments
+  // under concurrency. The binding's window is fixed in wrangler.toml
+  // ([[unsafe.bindings]] type = "ratelimit", simple.period = 60).
+  if (env.REG_INIT_RATE_LIMITER) {
+    const { success } = await env.REG_INIT_RATE_LIMITER.limit({ key: ipHash });
+    if (!success) {
+      return jsonResponse(
+        { error: "Too many requests. Please wait a moment." },
+        429
+      );
+    }
+  } else {
+    const initRateMax = parseInt(env.REG_INIT_RATE_LIMIT_PER_MINUTE || REG_INIT_RATE_LIMIT_PER_MINUTE, 10);
+    const minute = new Date().toISOString().slice(0, 16);
+    const initRateKey = `reg_init:${ipHash}:${minute}`;
+    const initCount = parseInt(
+      (await env.METRICS.get(initRateKey)) || "0",
+      10
     );
+    if (initCount >= initRateMax) {
+      return jsonResponse(
+        { error: "Too many requests. Please wait a moment." },
+        429
+      );
+    }
+    await env.METRICS.put(initRateKey, String(initCount + 1), {
+      expirationTtl: 120,
+    });
   }
-  await env.METRICS.put(initRateKey, String(initCount + 1), {
-    expirationTtl: 120,
-  });
 
   // Per-IP registration rate limit (transient, not stored permanently)
   const regRateMax = parseInt(env.REG_RATE_LIMIT_PER_DAY || REG_RATE_LIMIT_PER_DAY, 10);
@@ -87,26 +85,18 @@ export async function handleRegisterInit(request, env) {
   const userCode = generateUserCode();
   const userCodeNorm = userCode.replace("-", "");
 
-  // Generate proof-of-work challenge
-  const powChallenge = generatePowChallenge();
-
   // Store in METRICS KV with TTL
   await env.METRICS.put(
     `device:${deviceCode}`,
     JSON.stringify({
       user_code: userCodeNorm,
       status: "pending",
-      pow_challenge: powChallenge,
       created_at: new Date().toISOString(),
     }),
     { expirationTtl: DEVICE_CODE_TTL }
   );
   await env.METRICS.put(`usercode:${userCodeNorm}`, deviceCode, {
     expirationTtl: DEVICE_CODE_TTL,
-  });
-  // Store PoW challenge separately so the browser page can fetch it
-  await env.METRICS.put(`pow:${userCodeNorm}`, powChallenge, {
-    expirationTtl: POW_CHALLENGE_TTL,
   });
 
   const baseUrl = new URL(request.url).origin;
@@ -181,21 +171,6 @@ export function handleRegisterPage(env) {
       e.target.value = v;
     });
 
-    // Proof-of-Work solver: find nonce where SHA-256(challenge+nonce) starts with N zeros
-    async function solvePoW(challenge, difficulty) {
-      const prefix = '0'.repeat(difficulty);
-      let nonce = 0;
-      while (true) {
-        const data = new TextEncoder().encode(challenge + nonce);
-        const hash = await crypto.subtle.digest('SHA-256', data);
-        const hex = [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2,'0')).join('');
-        if (hex.startsWith(prefix)) return nonce;
-        nonce++;
-        // Yield to UI every 1000 iterations to keep page responsive
-        if (nonce % 1000 === 0) await new Promise(r => setTimeout(r, 0));
-      }
-    }
-
     async function register() {
       const code = codeInput.value.trim();
       if (code.replace('-','').length !== 8) {
@@ -209,31 +184,15 @@ export function handleRegisterPage(env) {
       }
       const btn = document.getElementById('submit');
       btn.disabled = true;
-      btn.textContent = 'Verifying (may take a few seconds)...';
+      btn.textContent = 'Registering...';
       try {
-        // Fetch PoW challenge for this user code
         const userCode = code.replace('-','').toUpperCase();
-        const challengeResp = await fetch('/register/challenge/' + userCode);
-        if (!challengeResp.ok) {
-          const err = await challengeResp.json();
-          showMsg(err.error || 'Code expired or invalid.', 'err');
-          btn.disabled = false;
-          btn.textContent = 'Register';
-          return;
-        }
-        const { challenge, difficulty } = await challengeResp.json();
-
-        // Solve proof-of-work (takes a few seconds)
-        const nonce = await solvePoW(challenge, difficulty);
-
-        btn.textContent = 'Registering...';
         const resp = await fetch('/register/complete', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             user_code: userCode,
-            turnstile_token: turnstileEl.value,
-            pow_nonce: nonce
+            turnstile_token: turnstileEl.value
           })
         });
         const data = await resp.json();
@@ -275,15 +234,12 @@ export async function handleRegisterComplete(request, env) {
     return jsonResponse({ error: "Invalid request body" }, 400);
   }
 
-  const { user_code, turnstile_token, pow_nonce } = body;
+  const { user_code, turnstile_token } = body;
   if (!user_code || !turnstile_token) {
     return jsonResponse(
       { error: "Missing user_code or turnstile_token" },
       400
     );
-  }
-  if (pow_nonce == null) {
-    return jsonResponse({ error: "Missing proof-of-work solution" }, 400);
   }
 
   // Validate Turnstile token
@@ -312,18 +268,6 @@ export async function handleRegisterComplete(request, env) {
   // Look up user code
   const userCodeNorm = user_code.replace("-", "").toUpperCase();
 
-  // Verify proof-of-work
-  const powChallenge = await env.METRICS.get(`pow:${userCodeNorm}`);
-  if (!powChallenge) {
-    return jsonResponse({ error: "PoW challenge expired or invalid" }, 400);
-  }
-  const powValid = await verifyPow(powChallenge, String(pow_nonce));
-  if (!powValid) {
-    await incrementMetric(env, "pow_failures_total");
-    return jsonResponse({ error: "Invalid proof-of-work solution" }, 400);
-  }
-  // Clean up PoW challenge (one-time use)
-  await env.METRICS.delete(`pow:${userCodeNorm}`);
   const deviceCode = await env.METRICS.get(`usercode:${userCodeNorm}`);
   if (!deviceCode) {
     return jsonResponse({ error: "Code expired or invalid" }, 404);
@@ -397,17 +341,6 @@ export async function handleRegisterPoll(deviceCode, env) {
   }
 
   return jsonResponse({ status: "pending" });
-}
-
-// --- PoW challenge endpoint ---
-
-export async function handlePowChallenge(userCode, env) {
-  const userCodeNorm = userCode.toUpperCase();
-  const challenge = await env.METRICS.get(`pow:${userCodeNorm}`);
-  if (!challenge) {
-    return jsonResponse({ error: "Code expired or invalid" }, 404);
-  }
-  return jsonResponse({ challenge, difficulty: POW_DIFFICULTY });
 }
 
 // --- Public contribution stats ---

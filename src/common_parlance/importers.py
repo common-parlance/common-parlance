@@ -43,10 +43,34 @@ class ImportResult:
         self.errors.extend(other.errors)
 
 
+# Cap on a single decompressed ZIP member (defends against zip/decompression
+# bombs: ZipFile.read() inflates the whole member into memory). 256 MB is far
+# larger than any real conversation export but bounds a malicious entry.
+_MAX_ZIP_MEMBER_BYTES = 256 * 1024 * 1024
+
+
+def _read_zip_member(zf: "zipfile.ZipFile", name: str) -> str:
+    """Read a ZIP member as UTF-8, refusing to inflate a bomb. Checks the
+    declared uncompressed size before reading."""
+    info = zf.getinfo(name)
+    if info.file_size > _MAX_ZIP_MEMBER_BYTES:
+        raise ValueError(
+            f"{name} is {info.file_size} bytes (> {_MAX_ZIP_MEMBER_BYTES} cap)"
+        )
+    with zf.open(name) as f:
+        data = f.read(_MAX_ZIP_MEMBER_BYTES + 1)  # bound even if size is spoofed
+    if len(data) > _MAX_ZIP_MEMBER_BYTES:
+        raise ValueError(f"{name} exceeds {_MAX_ZIP_MEMBER_BYTES} byte cap")
+    return data.decode("utf-8")
+
+
 def content_hash(messages: list[dict]) -> str:
     """SHA-256 hash of normalized conversation content for dedup."""
     normalized = json.dumps(
-        [{"role": m["role"], "content": m["content"]} for m in messages],
+        [
+            {"role": m.get("role", ""), "content": m.get("content", "")}
+            for m in messages
+        ],
         sort_keys=True,
         ensure_ascii=True,
     )
@@ -140,9 +164,9 @@ def _detect_zip_format(path: Path) -> str | None:
                 return None
             # Peek at the JSON to distinguish tree vs flat
             try:
-                raw = zf.read("conversations.json").decode("utf-8")
+                raw = _read_zip_member(zf, "conversations.json")
                 data = json.loads(raw)
-            except (json.JSONDecodeError, UnicodeDecodeError):
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
                 return None
 
             if not isinstance(data, list) or not data:
@@ -324,8 +348,8 @@ def parse_zip_mapping_tree(path: Path) -> tuple[list[list[dict]], list[str]]:
 
     try:
         with zipfile.ZipFile(path) as zf:
-            raw = zf.read("conversations.json").decode("utf-8")
-    except (zipfile.BadZipFile, KeyError) as e:
+            raw = _read_zip_member(zf, "conversations.json")
+    except (zipfile.BadZipFile, KeyError, ValueError) as e:
         return [], [f"Failed to read ZIP: {e}"]
 
     try:
@@ -402,8 +426,8 @@ def parse_zip_chat_messages(path: Path) -> tuple[list[list[dict]], list[str]]:
 
     try:
         with zipfile.ZipFile(path) as zf:
-            raw = zf.read("conversations.json").decode("utf-8")
-    except (zipfile.BadZipFile, KeyError) as e:
+            raw = _read_zip_member(zf, "conversations.json")
+    except (zipfile.BadZipFile, KeyError, ValueError) as e:
         return [], [f"Failed to read ZIP: {e}"]
 
     try:
@@ -707,24 +731,30 @@ def import_conversations(
     session_id = f"import-{uuid.uuid4()}"
 
     for conv in conversations:
-        exchange = to_synthetic_exchange(conv)
-        if exchange is None:
-            result.skipped_empty += 1
-            continue
+        # One malformed conversation must not abort the whole batch (and, under
+        # the daemon, crash-loop the import). Isolate per-conversation failures.
+        try:
+            exchange = to_synthetic_exchange(conv)
+            if exchange is None:
+                result.skipped_empty += 1
+                continue
 
-        request_json, response_json = exchange
-        hash_val = content_hash(conv)
+            request_json, response_json = exchange
+            hash_val = content_hash(conv)
 
-        if dry_run:
-            result.imported += 1
-            continue
+            if dry_run:
+                result.imported += 1
+                continue
 
-        eid = store.log_exchange_with_hash(
-            session_id, request_json, response_json, hash_val
-        )
-        if eid is None:
-            result.skipped_duplicate += 1
-        else:
-            result.imported += 1
+            eid = store.log_exchange_with_hash(
+                session_id, request_json, response_json, hash_val
+            )
+            if eid is None:
+                result.skipped_duplicate += 1
+            else:
+                result.imported += 1
+        except Exception:
+            logger.warning("Skipping malformed conversation", exc_info=True)
+            result.skipped_malformed += 1
 
     return result

@@ -268,6 +268,19 @@ class ConversationStore:
         )
         return cursor.fetchall()
 
+    def pending_language_counts(self) -> dict[str, int]:
+        """Count pending-review staged conversations by detected language.
+
+        Used to warn about non-English conversations: both the local and
+        server-side NER passes are English-only, so PII protection is weaker
+        for other languages.
+        """
+        cursor = self.conn.execute(
+            "SELECT language, COUNT(*) AS n FROM staged "
+            "WHERE approved = 0 AND uploaded = 0 GROUP BY language"
+        )
+        return {row["language"]: row["n"] for row in cursor.fetchall()}
+
     def approve(self, staged_id: str) -> None:
         """Approve a staged conversation for upload."""
         self.conn.execute("UPDATE staged SET approved = 1 WHERE id = ?", (staged_id,))
@@ -489,8 +502,9 @@ class ConversationStore:
         """Delete all local data (raw exchanges and staged conversations).
 
         Used when consent is revoked — removes everything that hasn't
-        been uploaded yet. Already-uploaded anonymous data on HuggingFace
-        cannot be recalled.
+        been uploaded yet. Data already uploaded to HuggingFace cannot be
+        recalled here (removal within the 90-day window is a separate,
+        maintainer-mediated request).
         """
         staged_count = self.conn.execute("SELECT COUNT(*) FROM staged").fetchone()[0]
         exchange_count = self.conn.execute("SELECT COUNT(*) FROM exchanges").fetchone()[

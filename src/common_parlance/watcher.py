@@ -189,6 +189,19 @@ def _windows_install(watch_path: str, interval_min: int, db_path: str) -> str:
 # --- Public API ---
 
 
+def _safe_unit_path(p: str) -> str:
+    """Resolve to an absolute path and reject characters that could break out
+    of a systemd ExecStart= line or a Windows schtasks /TR value (where the
+    path is interpolated, not passed as a list). A real directory path has none
+    of these; rejecting them closes the argv/command-injection vector."""
+    if not p:
+        return p
+    resolved = str(Path(p).expanduser().resolve())
+    if any(c in resolved for c in "\"'`\n\r;|&<>$\x00"):
+        raise ValueError(f"refusing unsafe path for autostart unit: {p!r}")
+    return resolved
+
+
 def install_watcher(
     watch_path: str, interval_min: int, db_path: str
 ) -> tuple[str, str]:
@@ -196,6 +209,8 @@ def install_watcher(
 
     Returns (platform_name, info_string).
     """
+    watch_path = _safe_unit_path(watch_path)
+    db_path = _safe_unit_path(db_path)
     system = platform.system()
 
     if system == "Darwin":

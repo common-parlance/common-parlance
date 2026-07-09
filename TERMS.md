@@ -23,8 +23,10 @@ You represent that:
   identifiable information (PII) before upload.
 - Processed conversations are uploaded to a public dataset on HuggingFace.
 - For 90 days after upload, contributions can be traced to your API key for
-  deletion purposes. After 90 days, the mapping expires and contributions
-  become permanently anonymous.
+  deletion purposes. After 90 days, the mapping expires and contributions can
+  no longer be traced to your API key or selectively removed. Scrubbing reduces
+  re-identification risk but does not make the text itself anonymous — see
+  [PRIVACY.md](PRIVACY.md) for the limits.
 - Contributions are released under the dataset's license (see below) and may
   be used by anyone under those terms.
 

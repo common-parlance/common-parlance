@@ -9,6 +9,8 @@ build/
 # Virtual environments
 .venv/
 venv/
+*-env/
+dogfood-env/
 
 # Testing/Coverage
 .pytest_cache/
@@ -37,6 +39,7 @@ node_modules/
 /package.json
 
 # Wrangler
+/.wrangler/
 worker/.wrangler/
 worker/.dev.vars
 
@@ -54,8 +57,19 @@ docs/pattern_research_agents.md
 docs/architecture_comparison.md
 docs/architectural_patterns.md
 docs/ncmec_reporting_protocol.md
+docs/takedown_runbook.md
+docs/reddit_post_draft.md
+docs/reddit_conversation.json
 
 # SQLite databases (local user data)
 *.db
 *.db-wal
 *.db-shm
+
+# Gated / no-redistribute benchmark datasets — NEVER commit raw samples.
+# (HF datasets cache lives in ~/.cache/huggingface, outside the repo; these are
+# belt-and-suspenders for any in-repo download/output.)
+benchmark/data/
+benchmark/cache/
+benchmark/*-samples.*
+benchmark/*.local.*

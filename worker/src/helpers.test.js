@@ -244,9 +244,9 @@ describe("validateApiKey", () => {
     expect(result).toEqual(user);
   });
 
-  it("returns fallback for non-JSON metadata", async () => {
+  it("fails closed for non-JSON metadata (no tier-3 grant)", async () => {
     const env = { API_KEYS: { get: vi.fn().mockResolvedValue("not-json") } };
     const result = await validateApiKey("legacykey", env);
-    expect(result).toEqual({ valid: true });
+    expect(result).toBeNull();
   });
 });

@@ -56,6 +56,20 @@ def test_chunk_rows_single_chunk():
     assert len(chunks[0]) == 5
 
 
+def test_chunk_rows_maps_unknown_language_to_null():
+    # detect_language returns "unknown" for short/code-heavy/empty text, but the
+    # worker validates language as a BCP47 code or null and would 422 "unknown"
+    # forever. The client must send null instead.
+    row = _make_row()
+    row["language"] = "unknown"
+    _, line = _chunk_rows([row])[0][0]
+    assert json.loads(line)["language"] is None
+    # A real code passes through untouched.
+    row["language"] = "fr"
+    _, line = _chunk_rows([row])[0][0]
+    assert json.loads(line)["language"] == "fr"
+
+
 def test_chunk_rows_splits_large_batch():
     # Create rows that are ~500 bytes each, with a 1KB limit
     rows = [_make_row(400) for _ in range(5)]

@@ -1,5 +1,8 @@
-"""Tests for language detection (langdetect fallback only)."""
+"""Tests for language detection (py3langid fallback only)."""
 
+import pytest
+
+from common_parlance import lang
 from common_parlance.lang import detect_language
 
 
@@ -37,3 +40,16 @@ def test_short_gibberish_returns_something():
     # verify it doesn't crash
     result = detect_language("asdf")
     assert isinstance(result, str)
+
+
+def test_model_checksum_rejects_poisoned_cache(tmp_path, monkeypatch):
+    """A cached model that fails the pinned SHA-256 is rejected and removed."""
+    monkeypatch.setattr(lang, "_CACHE_DIR", tmp_path)
+    poisoned = tmp_path / "lid.176.ftz"
+    poisoned.write_bytes(b"not the real model")
+
+    with pytest.raises(RuntimeError, match="checksum"):
+        lang._get_model_path()
+
+    # The bad file is removed so a re-run can re-download cleanly.
+    assert not poisoned.exists()

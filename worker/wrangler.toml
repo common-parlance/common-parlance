@@ -2,6 +2,17 @@ name = "common-parlance-proxy"
 main = "src/index.js"
 compatibility_date = "2025-03-01"
 
+# Warm-keep the NER service. HuggingFace free-tier Spaces sleep after ~48h
+# idle; at low launch traffic the gaps between uploads can exceed that window,
+# so the first upload would hit a cold start and — since the upload pipeline
+# fails closed on NER errors — 503 the user. An 8h /health ping keeps the Space
+# awake (well under its sleep window) at a light footprint (3 pings/day) and
+# bounds post-restart cold windows to ~8h. Note: any sub-48h interval keeps the
+# Space awake 24/7 — letting it sleep while dormant would require activity-gated
+# warming, intentionally not done at launch. Handled by the `scheduled` export.
+[triggers]
+crons = ["0 */8 * * *"]
+
 [[kv_namespaces]]
 binding = "API_KEYS"
 id = "7fd3ce67846d4b63a21daa05b30fe249"
@@ -9,6 +20,28 @@ id = "7fd3ce67846d4b63a21daa05b30fe249"
 [[kv_namespaces]]
 binding = "METRICS"
 id = "c7ce269700764f338012624b66f7c241"
+
+# Native, atomic per-IP rate limiter for /register/init (race-free, unlike the
+# KV counter). namespace_id is an arbitrary account-unique integer; period must
+# be 10 or 60 seconds. If this binding is removed, registration falls back to
+# the KV counter automatically.
+[[unsafe.bindings]]
+name = "REG_INIT_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+# Native, atomic per-API-key anti-burst limiter for /upload. The KV tier
+# counters are read-then-write and can be raced by a concurrent burst (all
+# requests read a stale count and pass before any write sticks), letting one
+# key flood the expensive NER/HF pipeline. This atomic cap bounds that burst;
+# the KV tier counters still enforce the hourly budget. If removed, the upload
+# path falls back to the KV counters alone.
+[[unsafe.bindings]]
+name = "UPLOAD_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
 
 [vars]
 # NER service URL (HuggingFace Spaces). Leave empty to skip server-side NER.

@@ -4,10 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "common-parlance"
-version = "0.1.0"
+# Single source of truth is common_parlance.__version__ (see [tool.hatch.version]).
+dynamic = ["version"]
 description = "Privacy-preserving proxy for contributing local AI conversations to an open training commons"
 readme = "README.md"
 license = "Apache-2.0"
+# Only the code license. LICENSE-DATASET (ODC-BY, for the published dataset)
+# also lives at the repo root but must not be declared as a package license
+# file, or a scanner would read this Apache-2.0 code package as ODC-BY-encumbered.
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 keywords = ["ai", "llm", "dataset", "privacy", "pii", "proxy", "ollama", "open-source"]
 classifiers = [
@@ -26,28 +31,32 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn>=0.34.0",
-    "httpx>=0.28.0",
-    "rich>=13.9.0",
-    "langdetect>=1.0.9",
+    # Upper bounds cap the next major so a surprise release can't break installs.
+    # The ner-service Docker image exact-pins separately; these govern pip/uv.
+    "fastapi>=0.115.0,<1.0",
+    "uvicorn>=0.34.0,<1.0",
+    "httpx>=0.28.0,<1.0",
+    "rich>=13.9.0,<15",
+    "py3langid>=0.3.0,<1.0",
 ]
 
 [project.optional-dependencies]
-fasttext = ["fasttext-numpy2-wheel>=0.9.2"]
+fasttext = ["fasttext-numpy2-wheel>=0.9.2,<1.0"]
 ner = [
-    "presidio-analyzer>=2.2.0",
-    "presidio-anonymizer>=2.2.0",
-    "spacy>=3.7.0",
+    "presidio-analyzer>=2.2.0,<3.0",
+    "presidio-anonymizer>=2.2.0,<3.0",
+    "spacy>=3.7.0,<4.0",
 ]
-ml = ["detoxify>=0.5.0"]
+ml = ["detoxify>=0.5.0,<1.0"]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "respx>=0.22.0",
-    "ruff>=0.8.0",
+    # Pin the formatter to a minor range: ruff's format output changes between
+    # minors, so a floor-only spec silently breaks `ruff format --check` in CI.
+    "ruff>=0.15.5,<0.16",
     "pre-commit>=4.0.0",
 ]
 
@@ -60,12 +69,39 @@ Repository = "https://github.com/common-parlance/common-parlance"
 Issues = "https://github.com/common-parlance/common-parlance/issues"
 Dataset = "https://huggingface.co/datasets/common-parlance/conversations"
 
+[tool.hatch.version]
+# Derive the package version from common_parlance.__version__ so it is defined
+# in exactly one place (was duplicated here and in __init__.py and could drift).
+path = "src/common_parlance/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/common_parlance"]
+
+[tool.hatch.build.targets.sdist]
+# Whitelist what the published source distribution ships: the Python package
+# plus the corpus and tests needed to validate it. By default hatchling's sdist
+# sweeps the whole repo — that would publish the Cloudflare worker (whose
+# wrangler.toml carries live KV namespace IDs), the benchmark data dumps, and
+# local dev envs (dogfood-env/, not gitignored) to PyPI. `only-include` is the
+# restrictive form (a whitelist), so any future sensitive file stays out by
+# default; pyproject.toml, README.md, and LICENSE are added automatically from
+# the [project] metadata.
+only-include = [
+    "src/common_parlance",
+    "corpus",
+    "tests",
+    "NOTICE",
+]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 88
+
+[tool.ruff.format]
+# _stopwords.py is a generated, vendored wordlist kept in a compact multi-column
+# layout; don't let the formatter rewrite it one-token-per-line (thousands of
+# lines of churn, no value). It is still linted.
+exclude = ["src/common_parlance/_stopwords.py"]
 
 [tool.ruff.lint]
 select = [

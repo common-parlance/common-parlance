@@ -18,13 +18,12 @@
  *   TURNSTILE_SECRET   — Secret: Cloudflare Turnstile secret key
  */
 
-import { jsonResponse, getMetrics, validateApiKey } from "./helpers.js";
+import { jsonResponse, getMetrics, validateApiKey, apiKeyId } from "./helpers.js";
 import {
   handleRegisterInit,
   handleRegisterPage,
   handleRegisterComplete,
   handleRegisterPoll,
-  handlePowChallenge,
   handlePublicStats,
 } from "./registration.js";
 import { handleUpload } from "./upload.js";
@@ -62,15 +61,15 @@ async function handleContributions(request, env) {
     return jsonResponse({ error: "Missing ?key= parameter" }, 400);
   }
 
-  const prefix = targetKey.slice(0, 16);
+  const keyId = await apiKeyId(targetKey);
   // List all contribution entries for this key
-  const list = await env.METRICS.list({ prefix: `contrib:${prefix}:` });
+  const list = await env.METRICS.list({ prefix: `contrib:${keyId}:` });
   const files = list.keys.map((k) => {
-    const filePath = k.name.replace(`contrib:${prefix}:`, "");
+    const filePath = k.name.replace(`contrib:${keyId}:`, "");
     return filePath;
   });
 
-  return jsonResponse({ key_prefix: prefix, files, count: files.length });
+  return jsonResponse({ key_id: keyId, files, count: files.length });
 }
 
 async function handlePurge(request, env) {
@@ -97,7 +96,7 @@ async function handlePurge(request, env) {
   }
 
   const repo = env.HF_REPO || "common-parlance/conversations";
-  const prefix = key.slice(0, 16);
+  const keyId = await apiKeyId(key);
   const deleted = [];
   const failed = [];
 
@@ -137,7 +136,7 @@ async function handlePurge(request, env) {
       if (response.ok) {
         deleted.push(filePath);
         // Clean up contribution tracking
-        await env.METRICS.delete(`contrib:${prefix}:${filePath}`);
+        await env.METRICS.delete(`contrib:${keyId}:${filePath}`);
       } else {
         failed.push({ file: filePath, status: response.status });
       }
@@ -148,10 +147,36 @@ async function handlePurge(request, env) {
   }
 
   console.log(
-    `Purge for key ${prefix}: ${deleted.length} deleted, ${failed.length} failed`
+    `Purge for key ${keyId}: ${deleted.length} deleted, ${failed.length} failed`
   );
 
   return jsonResponse({ deleted, failed });
+}
+
+// --- Scheduled NER warm-keep ---
+
+// Ping the NER service so HuggingFace Spaces (free tier) doesn't cold-start on
+// the next real upload. The Space sleeps after idle; at low launch traffic the
+// gap between uploads can exceed that window, so the first upload would eat a
+// cold start past the /scrub timeout and — since the pipeline fails closed —
+// 503 the user. A periodic /health ping keeps the container (and the resident
+// spaCy model) awake. /health is unauthenticated by design, so no key is sent.
+// Uses a generous timeout (this is a background cron, not a user-facing path) so
+// a single ping can fully complete a cold boot and leave the Space warm.
+export async function warmNerService(env) {
+  const nerUrl = env.NER_SERVICE_URL;
+  if (!nerUrl) return;
+  try {
+    const resp = await fetch(`${nerUrl.replace(/\/$/, "")}/health`, {
+      method: "GET",
+      signal: AbortSignal.timeout(60000),
+    });
+    console.log(`NER warm ping: ${resp.status}`);
+  } catch (err) {
+    // Swallow: a failed warm ping must never error-loop the cron. The next tick
+    // (or the fail-closed upload path) handles a still-cold/down Space.
+    console.warn(`NER warm ping failed: ${err.message}`);
+  }
 }
 
 // --- Entry point ---
@@ -170,13 +195,6 @@ export default {
       }
       if (url.pathname === "/register/complete" && request.method === "POST") {
         return handleRegisterComplete(request, env);
-      }
-      if (
-        url.pathname.startsWith("/register/challenge/") &&
-        request.method === "GET"
-      ) {
-        const code = url.pathname.split("/register/challenge/")[1];
-        if (code) return handlePowChallenge(code, env);
       }
       if (
         url.pathname.startsWith("/register/poll/") &&
@@ -213,5 +231,9 @@ export default {
       console.error(`Unhandled error: ${err.message}`);
       return jsonResponse({ error: "Internal server error" }, 500);
     }
+  },
+
+  async scheduled(_event, env, _ctx) {
+    await warmNerService(env);
   },
 };

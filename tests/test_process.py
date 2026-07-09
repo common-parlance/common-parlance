@@ -209,6 +209,25 @@ def test_process_batch_scrubs_pii(store):
     assert "[EMAIL]" in user_content
 
 
+def test_pending_language_counts(store):
+    """Groups pending-review staged conversations by detected language."""
+    for lang in ["en", "fr", "fr", "es", "unknown"]:
+        ex_id = _insert_exchange(store, _openai_request(), _openai_response())
+        store.mark_processed(ex_id, "[]", turn_count=2, language=lang)
+
+    assert store.pending_language_counts() == {"en": 1, "fr": 2, "es": 1, "unknown": 1}
+
+    # Approved rows drop out — the warning is only about what is still pending.
+    fr_ids = [
+        row[0]
+        for row in store.conn.execute(
+            "SELECT id FROM staged WHERE language = 'fr'"
+        ).fetchall()
+    ]
+    store.approve_batch(fr_ids)
+    assert "fr" not in store.pending_language_counts()
+
+
 def test_process_batch_sets_metadata(store):
     """Staged record has turn_count, language, quality_signals."""
     req = _openai_request("Tell me about the history of computing in detail")

@@ -1,0 +1,39 @@
+# Pre-commit hooks for common-parlance.
+#   uv run pre-commit install            # enable on `git commit`
+#   uv run pre-commit run --all-files     # run across the repo once
+#
+# Ruff runs via the project's own pinned ruff (language: system -> `uv run`),
+# so there is exactly one ruff version and it matches CI. The other hooks are
+# pinned to upstream revs.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+
+  # Secret scanner. Uses .gitleaks.toml (default ruleset + repo allowlist).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (project ruff)
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format (project ruff)
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+        require_serial: true

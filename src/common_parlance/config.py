@@ -20,6 +20,10 @@ DEFAULT_CONFIG = {
     ),
     "auto_approve": False,
     "use_presidio": True,
+    # Compose the Detoxify ML content filter behind the keyword gate when the
+    # [ml] extra is installed. Listed here so `config use_ml_filter false` works
+    # (config_cmd rejects keys absent from DEFAULT_CONFIG); process reads it.
+    "use_ml_filter": True,
     "proxy_url": "https://common-parlance-proxy.common-parlance.workers.dev",
     "api_key": "",
     "upload_interval_hours": 24,

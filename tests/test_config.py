@@ -15,6 +15,14 @@ def test_load_default_config(tmp_path, monkeypatch):
     assert config == DEFAULT_CONFIG
 
 
+def test_use_ml_filter_is_configurable():
+    # The documented opt-out `config use_ml_filter false` only works if the key
+    # is in DEFAULT_CONFIG — config_cmd rejects keys not present there. It also
+    # drives whether process composes the Detoxify ML filter behind the keyword
+    # gate.
+    assert DEFAULT_CONFIG.get("use_ml_filter") is True
+
+
 def test_save_and_load_roundtrip(tmp_path, monkeypatch):
     config_path = tmp_path / "config.json"
     monkeypatch.setattr("common_parlance.config.CONFIG_PATH", config_path)

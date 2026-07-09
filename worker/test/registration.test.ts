@@ -8,25 +8,6 @@ import {
 } from "vitest";
 import { SELF, env } from "cloudflare:test";
 
-/**
- * Brute-force PoW solver: find nonce where SHA-256(challenge + nonce) starts
- * with `difficulty` zero hex characters.
- */
-async function solvePoW(
-  challenge: string,
-  difficulty: number
-): Promise<number> {
-  const prefix = "0".repeat(difficulty);
-  for (let nonce = 0; ; nonce++) {
-    const data = new TextEncoder().encode(challenge + nonce);
-    const hash = await crypto.subtle.digest("SHA-256", data);
-    const hex = [...new Uint8Array(hash)]
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    if (hex.startsWith(prefix)) return nonce;
-  }
-}
-
 /** Mock Turnstile verification as passing. */
 function mockTurnstileSuccess() {
   globalThis.fetch = vi.fn(async () => {
@@ -88,21 +69,8 @@ describe("Registration flow — integration", () => {
 
   // --- Full registration flow ---
 
-  it("completes full flow: init -> challenge -> solve PoW -> complete -> poll -> get key", { timeout: 30000 }, async () => {
+  it("completes full flow: init -> complete -> poll -> get key", async () => {
     const { device_code, userCodeNorm, ip } = await initRegistration();
-
-    // Fetch PoW challenge
-    const challengeResp = await SELF.fetch(
-      `http://localhost/register/challenge/${userCodeNorm}`
-    );
-    expect(challengeResp.status).toBe(200);
-    const { challenge, difficulty } = await challengeResp.json() as {
-      challenge: string;
-      difficulty: number;
-    };
-
-    // Solve PoW
-    const nonce = await solvePoW(challenge, difficulty);
 
     // Complete registration (mock Turnstile as passing)
     mockTurnstileSuccess();
@@ -117,7 +85,6 @@ describe("Registration flow — integration", () => {
         body: JSON.stringify({
           user_code: userCodeNorm,
           turnstile_token: "fake-turnstile-token",
-          pow_nonce: nonce,
         }),
       }
     );
@@ -165,29 +132,23 @@ describe("Registration flow — integration", () => {
 
   // --- Rate limiting on /register/init ---
 
-  it("returns 429 when /register/init rate limit is exceeded", async () => {
+  it("returns 429 once the per-IP /register/init limit is exceeded", async () => {
+    // Exercises the native rate-limiter binding (REG_INIT_RATE_LIMITER,
+    // limit 10 / 60s in wrangler.toml). Same IP for every request so they all
+    // land in one bucket; the burst eventually trips the limit.
     const ip = "198.51.100.99";
-    const date = new Date().toISOString().slice(0, 10);
-    const ipData = new TextEncoder().encode(
-      `${ip}:${date}:common-parlance-reg-salt`
-    );
-    const hashBuf = await crypto.subtle.digest("SHA-256", ipData);
-    const ipHash = [...new Uint8Array(hashBuf).slice(0, 6)]
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    const minute = new Date().toISOString().slice(0, 16);
-    const initRateKey = `reg_init:${ipHash}:${minute}`;
-    await env.METRICS.put(initRateKey, "1000");
-
-    const resp = await SELF.fetch("http://localhost/register/init", {
-      method: "POST",
-      headers: { "CF-Connecting-IP": ip },
-    });
-
-    expect(resp.status).toBe(429);
-    const body = await resp.json() as { error: string };
-    expect(body.error).toMatch(/Too many requests/);
+    const statuses: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      const resp = await SELF.fetch("http://localhost/register/init", {
+        method: "POST",
+        headers: { "CF-Connecting-IP": ip },
+      });
+      statuses.push(resp.status);
+    }
+    expect(statuses[0]).toBe(200);
+    expect(statuses).toContain(429);
+    // Once tripped it stays tripped within the window.
+    expect(statuses[statuses.length - 1]).toBe(429);
   });
 
   // --- Expired device code ---
@@ -202,33 +163,9 @@ describe("Registration flow — integration", () => {
     expect(body.error).toMatch(/Unknown or expired/);
   });
 
-  // --- Invalid PoW ---
+  // --- Unknown user code ---
 
-  it("returns 400 for invalid proof-of-work solution", async () => {
-    const { userCodeNorm, ip } = await initRegistration();
-
-    mockTurnstileSuccess();
-    const resp = await SELF.fetch("http://localhost/register/complete", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "CF-Connecting-IP": ip,
-      },
-      body: JSON.stringify({
-        user_code: userCodeNorm,
-        turnstile_token: "fake-token",
-        pow_nonce: 999999999,
-      }),
-    });
-
-    expect(resp.status).toBe(400);
-    const body = await resp.json() as { error: string };
-    expect(body.error).toMatch(/Invalid proof-of-work/);
-  });
-
-  // --- Expired PoW challenge ---
-
-  it("returns 400 when PoW challenge is expired/missing", async () => {
+  it("returns 404 for an unknown/expired user code (Turnstile passed)", async () => {
     mockTurnstileSuccess();
 
     const resp = await SELF.fetch("http://localhost/register/complete", {
@@ -240,13 +177,12 @@ describe("Registration flow — integration", () => {
       body: JSON.stringify({
         user_code: "ZZZZZZZZ",
         turnstile_token: "fake-token",
-        pow_nonce: 0,
       }),
     });
 
-    expect(resp.status).toBe(400);
+    expect(resp.status).toBe(404);
     const body = await resp.json() as { error: string };
-    expect(body.error).toMatch(/PoW challenge expired/);
+    expect(body.error).toMatch(/Code expired or invalid/);
   });
 
   // --- Turnstile failure ---
@@ -264,7 +200,6 @@ describe("Registration flow — integration", () => {
       body: JSON.stringify({
         user_code: userCodeNorm,
         turnstile_token: "bad-token",
-        pow_nonce: 0,
       }),
     });
 

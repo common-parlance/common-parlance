@@ -70,7 +70,7 @@ def _edit_turns(turns: list[dict], console) -> list[dict] | None:
     placeholder_pattern = re.compile(
         r"\[(?:NAME|EMAIL|PHONE|LOCATION|DATE|ADDRESS|GROUP|SSN|IP|SECRET|PATH"
         r"|CREDIT_CARD|URL|IBAN|MEDICAL_ID|DRIVER_LICENSE|REDACTED)"
-        r"(?:_\d+)?(?::[^\]]+)?\]|<ORGANIZATION>"
+        r"(?:_\d+)?(?::[^\]]+)?\]"
     )
     if placeholder_pattern.fullmatch(search_text.strip()):
         console.print("[red]Cannot redact existing placeholders.[/red]")

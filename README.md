@@ -4,7 +4,7 @@ A privacy-preserving tool for contributing your AI conversations to an open rese
 
 ## What it does
 
-Import conversations you already have, or capture new ones through a local proxy. Everything is scrubbed for PII on your machine, reviewed by you, then uploaded to the [Common Parlance dataset](https://huggingface.co/datasets/common-parlance/conversations).
+Import conversations you already have, or capture new ones through a local proxy. PII is scrubbed locally (best-effort — regex + secret patterns, with optional NER for names), surfaced for **your review and approval**, then uploaded to the [Common Parlance dataset](https://huggingface.co/datasets/common-parlance/conversations). No automated scrubbing is perfect, so the review step is the real safeguard — see [PRIVACY.md](PRIVACY.md) and the [dataset card](docs/dataset_card.md) for the exact guarantees and limits.
 
 ```
 [Your conversation exports]    [AI Client] → [Proxy :11435] → [Local Model]
@@ -133,8 +133,8 @@ If you're using the proxy, background uploads run automatically every 24 hours f
 
 - **Opt-in only**: nothing is captured or uploaded without your explicit consent
 - **Scrubbed locally**: PII removal happens on your machine before anything leaves
-- **Server-side NER**: a second pass catches names and locations that regex misses (Presidio + spaCy)
-- **Anonymous**: no user ID, device fingerprint, or metadata in the published dataset
+- **Server-side NER**: a second pass that catches *additional* names and locations regex misses (Presidio + spaCy). Best-effort and English-only — it improves recall but is not a guarantee, which is why nothing publishes without your review
+- **No metadata**: no user ID, device fingerprint, or client metadata in the published dataset (scrubbing reduces re-identification risk but is not a guarantee of anonymity — writing style and rare details can remain; see [PRIVACY.md](PRIVACY.md))
 - **Inspectable**: your local data is a SQLite database you can query directly (`sqlite3 ~/.local/share/common-parlance/conversations.db`)
 
 ### What gets uploaded
@@ -197,9 +197,9 @@ common-parlance startup --disable
 
 ## License
 
-The **code** is licensed under Apache-2.0.
+The **code** is licensed under [Apache-2.0](LICENSE).
 
-The **dataset** is licensed under [ODC-BY 1.0](LICENSE) (Open Data Commons Attribution) — use the data freely for any purpose with attribution. See [COVENANT.md](COVENANT.md) for the community request to keep model weights open.
+The **dataset** is licensed under [ODC-BY 1.0](LICENSE-DATASET) (Open Data Commons Attribution) — use the data freely for any purpose with attribution. See [COVENANT.md](COVENANT.md) for the community request to keep model weights open.
 
 ## Contributing
 

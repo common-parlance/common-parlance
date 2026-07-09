@@ -1,0 +1,6 @@
+{"id":"guard-realcode-license-url","surfaces":["scrub","worker"],"input":"see apache.org/licenses/LICENSE-2.0 for terms","sensitive":[],"guard":["apache.org/licenses/LICENSE-2.0"]}
+{"id":"guard-realcode-oauth-scope","surfaces":["scrub","worker"],"input":"scope googleapis.com/auth/gmail.readonly granted","sensitive":[],"guard":["googleapis.com/auth/gmail.readonly"]}
+{"id":"guard-realcode-d3d12-class","surfaces":["scrub","worker"],"input":"class WrappedID3D12ProtectedResourceSession final","sensitive":[],"guard":["WrappedID3D12ProtectedResourceSession"]}
+{"id":"guard-realcode-versioned-snake","surfaces":["scrub","worker"],"input":"var file_google_cloud_recommender_v1beta1 ready","sensitive":[],"guard":["file_google_cloud_recommender_v1beta1"]}
+{"id":"guard-realcode-module-path","surfaces":["scrub","worker"],"input":"import modules/vue-loader/lib/runtime/component here","sensitive":[],"guard":["modules/vue-loader/lib/runtime/component"]}
+{"id":"guard-cpp-scope-resolution","surfaces":["scrub","worker"],"input":"code uses std::vector and dead::beef here","sensitive":[],"guard":["std::vector","dead::beef"]}

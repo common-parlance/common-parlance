@@ -15,6 +15,9 @@ export default defineConfig({
           TURNSTILE_SECRET: "test-turnstile-secret",
           TURNSTILE_VERIFY_URL: "https://turnstile.example.com/siteverify",
           NER_API_KEY: "test-ner-key",
+          // Mirror production (wrangler.toml sets this): the upload path now
+          // fails closed without it. The outbound /scrub fetch is mocked.
+          NER_SERVICE_URL: "https://ner.test.invalid",
           TURNSTILE_SITE_KEY: "test-site-key",
           KEY_COOLDOWN_SECONDS: "0",
           REG_RATE_LIMIT_PER_DAY: "1000",

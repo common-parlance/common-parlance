@@ -1,0 +1,302 @@
+[
+  {
+    "id": "guard-camelcase-identifier",
+    "scrubbed": "Use AbstractSingletonProxyFactoryBean here"
+  },
+  {
+    "id": "guard-camelcase-objc",
+    "scrubbed": "class NSURLSessionDataTaskDelegate impl"
+  },
+  {
+    "id": "guard-camelcase-with-digit",
+    "scrubbed": "call OAuth2AuthorizationCodeGrant handler"
+  },
+  {
+    "id": "guard-connection-string-no-creds",
+    "scrubbed": "see postgres://localhost:5432/mydb for the db"
+  },
+  {
+    "id": "guard-cpp-scope-resolution",
+    "scrubbed": "code uses std::vector and dead::beef here"
+  },
+  {
+    "id": "guard-git-sha",
+    "scrubbed": "commit 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b shipped"
+  },
+  {
+    "id": "guard-java-package",
+    "scrubbed": "import com.google.common.collect.ImmutableList here"
+  },
+  {
+    "id": "guard-maven-coordinate",
+    "scrubbed": "use org.apache.commons.lang3.StringUtils now"
+  },
+  {
+    "id": "guard-realcode-d3d12-class",
+    "scrubbed": "class WrappedID3D12ProtectedResourceSession final"
+  },
+  {
+    "id": "guard-realcode-license-url",
+    "scrubbed": "see apache.org/licenses/LICENSE-2.0 for terms"
+  },
+  {
+    "id": "guard-realcode-module-path",
+    "scrubbed": "import modules/vue-loader/lib/runtime/component here"
+  },
+  {
+    "id": "guard-realcode-oauth-scope",
+    "scrubbed": "scope googleapis.com/auth/gmail.readonly granted"
+  },
+  {
+    "id": "guard-realcode-versioned-snake",
+    "scrubbed": "var file_google_cloud_recommender_v1beta1 ready"
+  },
+  {
+    "id": "guard-screaming-snake-const",
+    "scrubbed": "const MAX_RETRY_ATTEMPTS_BEFORE_FAILURE set"
+  },
+  {
+    "id": "guard-semver-build-metadata",
+    "scrubbed": "build 1.2.3-beta+exp.sha.5114f85 done"
+  },
+  {
+    "id": "guard-sha256-hex",
+    "scrubbed": "digest e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 ok"
+  },
+  {
+    "id": "guard-unix-system-path",
+    "scrubbed": "run /usr/local/bin/python script"
+  },
+  {
+    "id": "guard-uuid",
+    "scrubbed": "id 550e8400-e29b-41d4-a716-446655440000 here"
+  },
+  {
+    "id": "guard-windows-system-path",
+    "scrubbed": "edit C:\\Windows\\System32\\drivers config"
+  },
+  {
+    "id": "path-linux",
+    "scrubbed": "logs at [PATH] rotated"
+  },
+  {
+    "id": "path-macos",
+    "scrubbed": "Traceback in [PATH] here"
+  },
+  {
+    "id": "path-root-home",
+    "scrubbed": "cd [PATH] && ls"
+  },
+  {
+    "id": "path-windows",
+    "scrubbed": "open [PATH] now"
+  },
+  {
+    "id": "pii-credit-card-solid",
+    "scrubbed": "paid [CREDIT_CARD]ok"
+  },
+  {
+    "id": "pii-credit-card-spaced",
+    "scrubbed": "card [CREDIT_CARD]expired"
+  },
+  {
+    "id": "pii-email-basic",
+    "scrubbed": "Contact me at [EMAIL] please"
+  },
+  {
+    "id": "pii-ipv4",
+    "scrubbed": "Server at [IP] responded"
+  },
+  {
+    "id": "pii-ipv6",
+    "scrubbed": "addr [IP] up"
+  },
+  {
+    "id": "pii-ipv6-compressed",
+    "scrubbed": "ping [IP] now"
+  },
+  {
+    "id": "pii-ipv6-loopback",
+    "scrubbed": "loopback [IP] reached"
+  },
+  {
+    "id": "pii-phone-dashed",
+    "scrubbed": "Call [PHONE] today"
+  },
+  {
+    "id": "pii-phone-intl-de",
+    "scrubbed": "Berlin desk [PHONE] during business hours"
+  },
+  {
+    "id": "pii-phone-intl-uk",
+    "scrubbed": "Call the London office at [PHONE] for support"
+  },
+  {
+    "id": "pii-phone-parenthesized",
+    "scrubbed": "Reach us at ([PHONE] anytime"
+  },
+  {
+    "id": "pii-ssn",
+    "scrubbed": "SSN: [SSN]"
+  },
+  {
+    "id": "secret-anthropic",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-aws-access-key",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-azure-account-key",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-azure-shared-access-key",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-bearer-token",
+    "scrubbed": "[SECRET]"
+  },
+  {
+    "id": "secret-connection-string-postgres",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-connstring-redis",
+    "scrubbed": "cache [SECRET] set"
+  },
+  {
+    "id": "secret-entropy-base64-padded",
+    "scrubbed": "token [SECRET] end"
+  },
+  {
+    "id": "secret-entropy-base64-plusslash",
+    "scrubbed": "blob [SECRET] end"
+  },
+  {
+    "id": "secret-entropy-dotted-token",
+    "scrubbed": "tok [SECRET] done"
+  },
+  {
+    "id": "secret-entropy-regression-base64",
+    "scrubbed": "blob [SECRET] end"
+  },
+  {
+    "id": "secret-entropy-regression-dotted",
+    "scrubbed": "tok abcDEFghi.[SECRET] end"
+  },
+  {
+    "id": "secret-entropy-regression-longrun",
+    "scrubbed": "key [SECRET] here"
+  },
+  {
+    "id": "secret-entropy-with-digit",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-gcp-private-key-id",
+    "scrubbed": "key: [SECRET]\""
+  },
+  {
+    "id": "secret-github-pat-classic",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-github-pat-finegrained",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-google-api-key",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-google-oauth-ya29",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-jwt",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-openai-classic",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-pem-private-key-block",
+    "scrubbed": "load:\n[SECRET]\nok"
+  },
+  {
+    "id": "secret-pem-private-key-pkcs8",
+    "scrubbed": "[SECRET]"
+  },
+  {
+    "id": "secret-pgp-private-key",
+    "scrubbed": "[SECRET]"
+  },
+  {
+    "id": "secret-slack-bot",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-stripe-live",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-twilio-account-sid",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-twilio-api-sid",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "secret-twilio-contextual-auth-token",
+    "scrubbed": "[SECRET]"
+  },
+  {
+    "id": "sig-aws-bare-param",
+    "scrubbed": "Signing header [SECRET] attached to the request"
+  },
+  {
+    "id": "sig-azure-sas-url",
+    "scrubbed": "Blob URL [URL:acct.blob.core.windows.net] was shared"
+  },
+  {
+    "id": "sig-gcs-bare-rsa",
+    "scrubbed": "Signed request [SECRET] for the object"
+  },
+  {
+    "id": "sig-gcs-presigned-url",
+    "scrubbed": "Grab it from [URL:storage.googleapis.com]"
+  },
+  {
+    "id": "sig-guard-short-sig",
+    "scrubbed": "Example: ?sig=abc123 is too short to be a real signature"
+  },
+  {
+    "id": "uni-bidi-override-secret",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "uni-fullwidth-email",
+    "scrubbed": "mail [EMAIL] here"
+  },
+  {
+    "id": "uni-zero-width-secret",
+    "scrubbed": "key: [SECRET]"
+  },
+  {
+    "id": "url-basic",
+    "scrubbed": "see [URL:example.com] for info"
+  },
+  {
+    "id": "url-suspicious-tld",
+    "scrubbed": "click [URL:win-prize.xyz] please"
+  },
+  {
+    "id": "url-with-credentials",
+    "scrubbed": "fetch [URL:host.com] done"
+  }
+]

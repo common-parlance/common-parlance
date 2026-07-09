@@ -1,0 +1,20 @@
+# Gitleaks config: default ruleset plus repo-specific allowlists.
+# The test suite and golden corpus deliberately contain fake/sample secrets to
+# prove the scrubber catches them; wrangler.toml holds Cloudflare resource ids
+# (KV namespaces) and the public Turnstile site key — none are credentials.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "common-parlance repo allowlist"
+paths = [
+  '''tests/.*''',
+  '''corpus/.*''',
+  '''worker/src/.*\.test\.js''',
+  '''worker/test/.*''',
+  '''worker/wrangler\.toml''',
+]
+regexes = [
+  # Public-by-design Cloudflare Turnstile site key (only the secret is private).
+  '''0x4AAAAAACs1_5q7-z6bCYtj''',
+]

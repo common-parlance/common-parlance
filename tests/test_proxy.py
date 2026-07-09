@@ -30,8 +30,30 @@ def test_is_chat_endpoint_non_chat():
 
 
 def test_is_chat_endpoint_with_prefix():
-    """Paths containing chat paths still match."""
+    """Reverse-proxy path prefixes still match (suffix match)."""
     assert is_chat_endpoint("/prefix/v1/chat/completions") is True
+
+
+def test_is_chat_endpoint_rejects_trailing_garbage():
+    """A chat path embedded with trailing segments is not a chat endpoint."""
+    assert is_chat_endpoint("/v1/chat/completions/extra") is False
+    assert is_chat_endpoint("/v1/chat/completionsX") is False
+
+
+def test_is_chat_endpoint_tolerates_trailing_slash():
+    """A trailing slash is a real endpoint variant and must still be logged."""
+    assert is_chat_endpoint("/v1/chat/completions/") is True
+    assert is_chat_endpoint("/api/chat/") is True
+    assert is_chat_endpoint("/prefix/v1/chat/completions/") is True
+
+
+def test_is_chat_endpoint_not_triggered_by_query_string():
+    """The caller strips the query; a chat path in a query value must not match.
+
+    is_chat_endpoint sees only the path, so a smuggled query value like
+    /api/tags?redirect=/api/chat never reaches it as part of the path.
+    """
+    assert is_chat_endpoint("/api/tags") is False
 
 
 def test_forward_headers_strips_hop_by_hop():
@@ -152,6 +174,39 @@ def test_proxy_logs_chat_to_db(httpx_mock, tmp_path):
         assert len(exchanges) == 1
         req_json = json.loads(exchanges[0]["request_json"])
         assert req_json["messages"][0]["content"] == "Hello"
+
+
+def test_proxy_streams_chat_and_still_logs(httpx_mock, tmp_path):
+    """A streaming chat request must be streamed to the client (not buffered)
+    AND still logged — the tee path. Previously chat+logging forced full
+    buffering, withholding the whole response until generation finished."""
+    from common_parlance.db import ConversationStore
+
+    db_path = str(tmp_path / "stream.db")
+    with ConversationStore(db_path):
+        pass
+
+    httpx_mock.responses["POST:/v1/chat/completions"] = {
+        "status": 200,
+        "text": "data: hello\n\ndata: [DONE]\n\n",
+        "headers": {"content-type": "text/event-stream"},
+    }
+
+    app = create_app("http://mock-upstream:11434", db_path=db_path)
+    client = TestClient(app)
+    resp = client.post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "Hi"}]},
+        headers={"accept": "text/event-stream"},
+    )
+    assert resp.status_code == 200
+    assert "hello" in resp.text  # streamed body reached the client
+
+    # And the teed body was logged.
+    with ConversationStore(db_path) as store:
+        exchanges = store.get_unprocessed()
+        assert len(exchanges) == 1
+        assert "hello" in exchanges[0]["response_json"]
 
 
 def test_proxy_non_chat_not_logged(httpx_mock, tmp_path):

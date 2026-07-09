@@ -30,7 +30,7 @@ _LEAK_CHECKS = {
 _PLACEHOLDER_RE = re.compile(
     r"\[(?:NAME|EMAIL|PHONE|LOCATION|DATE|ADDRESS|GROUP|SSN|IP|SECRET|PATH"
     r"|CREDIT_CARD|URL|IBAN|MEDICAL_ID|DRIVER_LICENSE|REDACTED)"
-    r"(?:_\d+)?(?::[^\]]+)?\]|<ORGANIZATION>"
+    r"(?:_\d+)?(?::[^\]]+)?\]"
 )
 
 

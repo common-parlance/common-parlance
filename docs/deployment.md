@@ -25,15 +25,17 @@ Sequential checklist — do these in order, check each box before moving on.
 - [ ] Verify health:
   ```bash
   curl https://<your-username>-<space-name>.hf.space/health
-  # Expected: {"ok":true,"model":"en_core_web_sm","entities":["PERSON","LOCATION","ORGANIZATION"]}
+  # Expected: {"ok":true,"model":"en_core_web_sm","entities":["PERSON","LOCATION"]}
   ```
 - [ ] Test scrubbing:
   ```bash
   curl -X POST https://<your-username>-<space-name>.hf.space/scrub \
     -H "Content-Type: application/json" \
     -H "X-API-Key: <your-ner-key>" \
-    -d '{"turns": [{"role": "user", "content": "My friend Alice at Google helped me"}]}'
-  # Expected: Alice → [NAME], Google → [ORG]
+    -d '{"turns": [{"role": "user", "content": "My friend Alice in Paris helped me"}]}'
+  # Expected: Alice → [NAME_1], Paris → [LOCATION]
+  # (ORG is intentionally NOT detected — only PERSON and LOCATION; "Google"
+  #  would pass through unredacted by design.)
   ```
 
 ### Phase 3: Deploy the Worker
@@ -71,7 +73,7 @@ cd worker && npm install && npx wrangler login
 - [ ] Verify health:
   ```bash
   curl https://common-parlance-proxy.<your-subdomain>.workers.dev/health
-  # Expected: {"ok":true,"repo":"common-parlance/conversations"}
+  # Expected: {"ok":true}
   ```
 
 ### Phase 4: Create the HuggingFace Dataset Repo
@@ -89,7 +91,7 @@ cd worker && npm install && npx wrangler login
   common-parlance register
   ```
   This uses the device auth flow: CLI shows a code, you enter it in the browser
-  with Turnstile verification + proof-of-work, and the CLI receives the key.
+  with Turnstile verification, and the CLI receives the key.
 - [ ] Generate an admin key for `/metrics` access:
   ```bash
   python -c "import secrets; print('cp_live_' + secrets.token_hex(16))"
@@ -231,14 +233,17 @@ uv sync
 
 ### Infrastructure
 - [ ] Custom domain for Worker (optional, cosmetic)
-- [x] API key self-registration (device auth + Turnstile + PoW)
+- [x] API key self-registration (device auth + Turnstile)
 - [x] Dataset rollback (batch-level attribution with 90-day TTL, admin purge endpoints)
 - [ ] HuggingFace fine-grained token (write-only, scoped to dataset repo)
 - [ ] Tagged dataset releases for consumers to pin to known-good snapshots
 
 ### Legal / Compliance
 - [ ] Complete privacy impact assessment — deferred until real usage at scale
-- [~] Right-to-delete — deferred (anonymous data cannot be traced to individuals)
+- [x] Right-to-delete — batch-level removal on request within the 90-day
+      attribution window (admin `/admin/contributions` + `/admin/purge`); after
+      90 days the attribution mapping expires and contributions can no longer be
+      traced to a key. Text is risk-reduced, not anonymous (see PRIVACY.md).
 
 ### Distribution
 - [ ] Publish to PyPI — tag `v0.1.0`, release workflow will build + publish
@@ -253,3 +258,45 @@ uv sync
 - All metrics are **aggregate counters only** — no per-user, per-conversation data
 - Server logs contain **no conversation content, no API keys, no user identity**
 - Content filter logs record **category only**, never the matched text
+
+---
+
+## Rollback & Yank
+
+Roll back fast when a deploy or release misbehaves; reserve yanks/removals for
+security or privacy incidents.
+
+### Cloudflare Worker
+
+- **List deployments:** `npx wrangler deployments list`
+- **Roll back:** `npx wrangler rollback` (or `npx wrangler rollback <version-id>`).
+  Re-points production at an existing build instantly — no rebuild.
+- **Re-deploy from source** if rollback isn't enough: `git checkout <good-sha>`
+  then `npx wrangler deploy`.
+- **Secrets are not rolled back with code.** If a secret leaked, rotate it
+  (`npx wrangler secret put <NAME>`) — see [secret_rotation.md](secret_rotation.md).
+- **KV is not versioned.** A code rollback does not revert KV writes (metrics,
+  dedup hashes, the contribution map).
+
+### PyPI package (yank)
+
+PyPI does not allow re-uploading a version, and deleting is discouraged. To pull
+a bad release:
+
+- **Yank** (preferred): via the PyPI web UI (Manage project → Releases → the
+  version → Options → Yank). A yank makes new resolutions skip the version while
+  existing pins still install it. There is no official `twine` CLI for yanking.
+  Use for a broken-but-not-dangerous release.
+- **Delete** (last resort): only for a release that leaks a secret or otherwise
+  must not be installable. Irreversible, and the version number can never be
+  reused.
+- Then bump the patch version in `src/common_parlance/__init__.py` (the single
+  source — see pyproject `[tool.hatch.version]`), add a `CHANGELOG.md` entry, and
+  cut a fresh release.
+
+### Dataset (HuggingFace)
+
+- **A contributor's data, within 90 days:** admin `/admin/contributions?key=`
+  to list, then `/admin/purge` to remove (batch-level).
+- **Other content:** commit a deletion to the dataset repo; for a broad
+  rollback, `git revert`/reset the dataset repo to a known-good commit.

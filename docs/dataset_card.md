@@ -1,7 +1,7 @@
 ---
 language:
-  - multilingual
-license: odc-by-1.0
+  - en
+license: odc-by
 pretty_name: Common Parlance Conversations
 size_categories:
   - n<1K
@@ -23,8 +23,9 @@ source_datasets:
 
 # Common Parlance Conversations
 
-A community-contributed dataset of anonymized conversations with local AI
-models. All conversations are voluntarily donated by users who opted in,
+A community-contributed dataset of PII-scrubbed, metadata-stripped
+conversations with local AI models. All conversations are voluntarily donated
+by users who opted in,
 reviewed their data, and approved it for publication.
 
 ## Dataset Details
@@ -43,7 +44,7 @@ Each record contains:
 | `conversation_id` | string (UUID) | Randomly generated per upload, not traceable to contributor |
 | `turns` | array of objects | Each has `role` ("user" or "assistant") and `content` (PII-scrubbed text) |
 | `turn_count` | integer | Number of turns in the conversation |
-| `language` | string | ISO 639-1 language code (detected via fasttext `lid.176.ftz` if available, otherwise `langdetect` with fixed seed). Detection backend may vary by contributor installation, and may be unreliable for short, code-heavy, or mixed-language conversations. |
+| `language` | string | ISO 639-1 language code (detected via fasttext `lid.176.ftz` if available, otherwise `py3langid`, a pure-Python port of langid.py). Detection backend may vary by contributor installation, and may be unreliable for short, code-heavy, or mixed-language conversations. The dataset is tagged `en` because it is English-primary and PII scrubbing is English-only; non-English conversations may still appear in this field but receive weaker PII protection (see Bias, Risks, and Limitations). |
 | `quality_signals` | object | See quality signals below |
 | `ner_scrubbed` | boolean | Whether the contributor ran Presidio NER locally in addition to regex scrubbing. All records are sent through server-side NER regardless of this flag; however, if the NER service is temporarily unavailable, the upload is rejected and retried later. |
 
@@ -77,7 +78,7 @@ skewed for conversations with heavy PII replacement.
 {
   "conversation_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "turns": [
-    {"role": "user", "content": "Can you help me debug this? [NAME] from my team said the API returns 500 when I hit [URL:example.com]/users"},
+    {"role": "user", "content": "Can you help me debug this? [NAME_1] from my team said the API returns 500 when I hit [URL:example.com]"},
     {"role": "assistant", "content": "Sure! A 500 on that endpoint usually means a database connection issue. Can you check if your connection string in the config is correct? Make sure the host and port match your database server."},
     {"role": "user", "content": "Found it — the password had a special character that wasn't escaped. Thanks!"},
     {"role": "assistant", "content": "That's a common gotcha. You can URL-encode special characters in the connection string, or use a config file that handles them natively."}
@@ -111,11 +112,16 @@ Statistics will be published after initial data collection.
 3. PII is scrubbed locally via regex (emails, phones, SSNs, IPs, file paths,
    API keys, credit cards, secrets) and optionally via local NER (Presidio + spaCy)
 4. Content is checked against a blocklist for harmful material (this check runs
-   on the original text before scrubbing, so it sees full context for filtering)
+   on the original text before scrubbing, so it sees full context for filtering).
+   When the optional `[ml]` extra (Detoxify) is installed, an ML toxicity filter
+   runs as a second layer to catch contextual toxicity that keyword matching
+   misses.
 5. Contributors review and approve each conversation (or enable auto-approve)
 6. Approved conversations are uploaded through an auth proxy that performs:
    - Server-side PII regex validation (rejects if structured PII detected)
-   - Server-side NER pass (Presidio + spaCy) for names, locations, organizations
+   - Server-side NER pass (Presidio + spaCy) for names and locations
+     (organization/product names are intentionally not redacted — noisy NER,
+     high utility and low risk in technical text)
    - Content filter check
 7. Data that passes all checks is committed to this dataset
 
@@ -135,8 +141,9 @@ Two-stage pipeline:
 
 **Stage 2 — Server-side (before publication):**
 - Regex validation rejects uploads containing detectable structured PII
-- NER pass (Presidio + spaCy `en_core_web_sm`) scrubs names, locations, and
-  organizations that regex cannot detect
+- NER pass (Presidio + spaCy `en_core_web_sm`) scrubs names and locations
+  that regex cannot detect (organization/product names are intentionally not
+  redacted)
 - Scrubbed entities replaced with the same typed placeholder format
 
 ### Known limitations
@@ -148,6 +155,41 @@ Two-stage pipeline:
 - Contributors are encouraged to review conversations before approving.
 - The `quality_signals` schema may evolve across dataset versions as new
   signals are added. Consumers should handle missing fields gracefully.
+
+## Content Moderation & Reporting
+
+Contributions pass through a layered content filter before publication, following
+the approach used for comparable open conversation datasets (e.g. WildChat,
+LMSYS-Chat-1M): automated filtering + contributor review + a reporting-and-removal
+path.
+
+- **Keyword blocklist** targeting CSAM indicators and dangerous instructions,
+  applied on the client and **mirrored server-side** so it cannot be bypassed by
+  modifying the client. Matching runs after a normalization pass (Unicode NFKC,
+  invisible/bidirectional-control stripping, combining-mark removal, cross-script
+  homoglyph folding, single-letter-spacing collapse, and leetspeak) so common
+  evasions do not slip past trivially.
+- **Optional ML toxicity filter** (Detoxify) as a second client-side layer when
+  the `[ml]` extra is installed.
+- **Contributor review** — each conversation can be reviewed and rejected before
+  upload.
+
+Blocked content is discarded, never staged or published.
+
+**Known limitations (stated plainly).** Keyword and general-toxicity filters cannot
+catch *meaning*. Content that is semantically harmful but lexically clean —
+variable-chunk spacing (e.g. `ch i ld`), algospeak/euphemism, or grooming and
+enticement phrased in ordinary language — is **not reliably caught** by the current
+filters; a dedicated CSAM/grooming classifier is a planned addition, not yet
+deployed. As with any crowdsourced text dataset, some objectionable content or
+residual PII may reach the published data despite these measures.
+
+**Reporting.** If you find harmful, illegal, or personally identifiable content in
+the dataset, please report it using the
+[Report Harmful Content](https://github.com/common-parlance/common-parlance/issues/new?template=content_report.yml)
+issue template (describe the content and where it is — do **not** paste the content
+itself). We take reports seriously and respond promptly: reported content is removed
+from the dataset, and reports involving CSAM or illegal content are prioritized.
 
 ## Intended Uses
 
@@ -173,9 +215,11 @@ Two-stage pipeline:
   may have weaker PII protection.
 - **Residual PII risk:** Despite two-stage scrubbing, some PII may survive —
   particularly unstructured references in non-English text or unusual formats.
-- **Content filtering:** Blocklist-based filtering may not catch all harmful
-  content. The dataset may contain conversations that some users find
-  objectionable.
+- **Content filtering:** Automated filtering is blocklist- and toxicity-based and
+  cannot catch semantically harmful but lexically clean content (see
+  [Content Moderation & Reporting](#content-moderation--reporting)). The dataset
+  may contain conversations that some users find objectionable; please report
+  harmful content via the issue template linked there.
 
 ## Citation
 

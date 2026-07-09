@@ -51,8 +51,18 @@ def run(args: argparse.Namespace) -> None:
             console.print(f"[dim]Valid keys: {', '.join(sorted(DEFAULT_CONFIG))}[/dim]")
         return
 
+    # Consent must go through the audited consent flow (which shows the
+    # disclosure and records a timestamp), never a raw `config consent true`
+    # that would set it with no disclosure and mis-store it as a string.
+    if key == "consent":
+        console.print(
+            "[red]Set consent via `common-parlance consent --grant` / "
+            "`--revoke`, not `config`.[/red]"
+        )
+        return
+
     # Set key=value
-    if key not in DEFAULT_CONFIG and key != "consent":
+    if key not in DEFAULT_CONFIG:
         console.print(f"[red]Unknown key: {key}[/red]")
         console.print(f"[dim]Valid keys: {', '.join(sorted(DEFAULT_CONFIG))}[/dim]")
         return
@@ -72,3 +82,13 @@ def run(args: argparse.Namespace) -> None:
 
     save_config(config)
     console.print(f"[green]Set {key} = {config[key]}[/green]")
+
+    # Enabling auto-approve disables the human review gate — call that out at
+    # the moment the user opts in, not just when it later runs.
+    if key == "auto_approve" and config[key] is True:
+        console.print(
+            "[bold yellow]⚠ auto_approve enabled: conversations will be "
+            "uploaded WITHOUT human review.[/bold yellow]\n"
+            "[yellow]  Automated filters miss things; you accept "
+            "responsibility for what gets published.[/yellow]"
+        )
